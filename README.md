@@ -19,11 +19,27 @@ backend/
 ├── .env                  # Local environment variables (git-ignored)
 ├── .env.example          # Template for required env vars
 ├── requirements.txt      # Python dependencies
+├── run.py                # Simple development entrypoint
 └── app/
     ├── __init__.py
-    ├── main.py               # FastAPI app, routes, CORS, request models
-    ├── gemini_operations.py  # Gemini prompt templates and structured output schemas
-    └── supabase_operations.py # Supabase CRUD for resumes, job descriptions, candidates
+    ├── main.py                   # Thin FastAPI app factory / entrypoint
+    ├── api/
+    │   ├── router.py             # Top-level API router
+    │   └── routes/
+    │       ├── gemini.py         # Gemini proxy endpoint
+    │       ├── health.py         # Health endpoint
+    │       └── records.py        # Resume / job description / candidate endpoints
+    ├── core/
+    │   ├── config.py             # Env loading and app config helpers
+    │   └── dependencies.py       # Shared route dependencies
+    ├── schemas/
+    │   ├── gemini.py             # Gemini request/response models
+    │   └── records.py            # Persistence payload models
+    ├── services/
+    │   ├── gemini_service.py     # Gemini service wrapper
+    │   └── persistence_service.py # Supabase service wrapper
+    ├── gemini_operations.py      # Prompt templates and structured output schemas
+    └── supabase_operations.py    # Low-level Supabase CRUD helpers
 ```
 
 ## Getting Started
@@ -75,10 +91,16 @@ backend/
 4. **Start the server**
 
    ```bash
-   uvicorn app.main:app --reload --port 8000
+   python run.py
    ```
 
    The API will be available at **http://127.0.0.1:8000**.
+
+   If you want to start it from the repo root instead:
+
+   ```bash
+   npm run dev:backend
+   ```
 
 ## API Reference
 
