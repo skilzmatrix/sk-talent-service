@@ -1,0 +1,6 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+google-genai>=1.68
+pydantic>=2
+python-dotenv>=1
+supabase>=2.0
