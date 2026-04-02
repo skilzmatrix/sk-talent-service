@@ -14,6 +14,7 @@ class ResumeRecord(BaseModel):
     experiences: list[Any] = Field(default_factory=list)
     projects: list[Any] = Field(default_factory=list)
     certifications: list[Any] = Field(default_factory=list)
+    resume_url: str = ""
 
 
 class JobDescriptionRecord(BaseModel):
@@ -36,4 +37,25 @@ class CandidateRecord(BaseModel):
     expected_salary: str = ""
     employment_type: str = ""
     summary: str
+    skills: list[str] = Field(default_factory=list)
+    experiences: list[Any] = Field(default_factory=list)
+    projects: list[Any] = Field(default_factory=list)
+    certifications: list[Any] = Field(default_factory=list)
+    resume_url: str = ""
+
+
+class CandidateProfileUpdate(BaseModel):
+    full_name: str
+    job_role: str
+    email: str = ""
+    phone: str = ""
+    location: str = ""
+    linkedin_profile: str = ""
+    domain_industry: str = ""
+    work_authorization: str = ""
+    preferred_location: str = ""
+    open_to_relocation: str = ""
+    expected_salary: str = ""
+    employment_type: str = ""
+    summary: str = ""
     skills: list[str] = Field(default_factory=list)

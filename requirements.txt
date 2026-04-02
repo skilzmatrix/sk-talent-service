@@ -4,3 +4,7 @@ google-genai>=1.68
 pydantic>=2
 python-dotenv>=1
 supabase>=2.0
+pinecone>=3
+llama-index-core
+llama-index-embeddings-gemini
+llama-index-vector-stores-pinecone

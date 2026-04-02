@@ -146,9 +146,6 @@ backend/
 | `analyzeResume` | json | Parse a resume and extract structured data; optionally score against a JD |
 | `createCandidateProfile` | json | Extract candidate profile fields from resume text |
 | `compareCandidates` | text | Compare two candidates side-by-side against a job description |
-| `screenBulkResumes` | json | Rank multiple resumes against a job description |
-| `generateInterviewQuestions` | text | Generate categorized interview questions from a job description |
-| `processResumeSection` | json | AI-assisted resume building (extract/rewrite personal info, summary, experience, education, skills) |
 
 ### Supabase Persistence
 

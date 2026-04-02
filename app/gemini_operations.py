@@ -130,22 +130,6 @@ SchemaResumeAnalysis: dict[str, Any] = {
     "required": ["summary", "skills", "experiences"],
 }
 
-SchemaBulkScreening: dict[str, Any] = {
-    "type": "ARRAY",
-    "items": {
-        "type": "OBJECT",
-        "properties": {
-            "rank": {"type": "INTEGER"},
-            "fileName": {"type": "STRING"},
-            "fitScore": {"type": "NUMBER"},
-            "summary": {"type": "STRING"},
-        },
-        "required": ["rank", "fileName", "fitScore", "summary"],
-    },
-}
-
-
-
 def _generate_text(client: genai.Client, prompt: str) -> str:
     response = client.models.generate_content(model=MODEL, contents=prompt)
     return (response.text or "").strip()
@@ -181,18 +165,6 @@ def invoke(
       - A list of required qualifications and skills.
       - A list of preferred qualifications.
       - A concluding statement about equal opportunity.
-      Format the output in Markdown."""
-        return "text", _generate_text(client, prompt)
-
-    if operation == "generateInterviewQuestions":
-        job_description = payload.get("jobDescription", "")
-        prompt = f"""Based on the following job description, generate a comprehensive list of 10-15 interview questions.
-      The questions should cover technical skills, behavioral competencies, and situational scenarios relevant to the role.
-      Categorize the questions into "Technical", "Behavioral", and "Situational".
-      Job Description:
-      ---
-      {job_description}
-      ---
       Format the output in Markdown."""
         return "text", _generate_text(client, prompt)
 
@@ -268,32 +240,6 @@ Resume:
       4.  **Final Recommendation:** Your final recommendation on which candidate seems to be a better fit and why."""
         return "text", _generate_text(client, prompt)
 
-    if operation == "screenBulkResumes":
-        job_description = payload.get("jobDescription", "")
-        resumes = payload.get("resumes") or []
-        resume_section = ""
-        for index, resume in enumerate(resumes):
-            resume_section += f"""
-        **Resume {index + 1} (File: {resume.get("fileName", "")}):**
-        ---
-        {resume.get("text", "")}
-        ---
-      """
-        prompt = f"""Act as a senior recruiter screening multiple candidates for a role.
-
-      **Job Description:**
-      ---
-      {job_description}
-      ---
-
-      Here are the resumes for the candidates:
-      {resume_section}
-
-      Please provide a ranked list of the candidates from best fit to worst fit for the role. For each candidate, provide their rank, file name, a fit score from 1-10, and a 2-3 sentence summary explaining your reasoning.
-
-      Respond in JSON format."""
-        return "json", _generate_json(client, prompt, SchemaBulkScreening)
-
     if operation == "optimizeJobAd":
         job_ad_text = payload.get("jobAdText", "")
         prompt = f"""Act as a Diversity, Equity, and Inclusion (DEI) consultant and a senior copywriter specializing in recruitment marketing. Analyze the following job advertisement.
@@ -311,75 +257,5 @@ Resume:
       2.  **Optimized Job Ad:**
           - Provide the full, rewritten job advertisement incorporating all your recommendations."""
         return "text", _generate_text(client, prompt)
-
-    if operation == "processResumeSection":
-        section_type = payload.get("sectionType", "")
-        user_input = payload.get("userInput", "")
-        if section_type == "personalInfo":
-            prompt = f'Extract the full name, email, phone number, and address from the following text: "{user_input}"'
-            schema = {
-                "type": "OBJECT",
-                "properties": {
-                    "name": {"type": "STRING"},
-                    "email": {"type": "STRING"},
-                    "phone": {"type": "STRING"},
-                    "address": {"type": "STRING"},
-                },
-                "required": ["name", "email"],
-            }
-        elif section_type == "summary":
-            prompt = f'Rewrite the following text into a concise, professional resume summary (2-4 sentences): "{user_input}"'
-            schema = {
-                "type": "OBJECT",
-                "properties": {"summary": {"type": "STRING"}},
-                "required": ["summary"],
-            }
-        elif section_type == "experience":
-            prompt = f'From the following job description text, extract the job title, company, location, start date, end date, and a list of key responsibilities. Start and end dates can be just years. Responsibilities should be action-oriented bullet points. Text: "{user_input}"'
-            schema = {
-                "type": "OBJECT",
-                "properties": {
-                    "title": {"type": "STRING"},
-                    "company": {"type": "STRING"},
-                    "location": {"type": "STRING"},
-                    "startDate": {"type": "STRING"},
-                    "endDate": {"type": "STRING"},
-                    "responsibilities": {
-                        "type": "ARRAY",
-                        "items": {"type": "STRING"},
-                    },
-                },
-                "required": [
-                    "title",
-                    "company",
-                    "startDate",
-                    "endDate",
-                    "responsibilities",
-                ],
-            }
-        elif section_type == "education":
-            prompt = f'From the following text about education, extract the degree, institution, location, and graduation year. Text: "{user_input}"'
-            schema = {
-                "type": "OBJECT",
-                "properties": {
-                    "degree": {"type": "STRING"},
-                    "institution": {"type": "STRING"},
-                    "location": {"type": "STRING"},
-                    "graduationYear": {"type": "STRING"},
-                },
-                "required": ["degree", "institution", "graduationYear"],
-            }
-        elif section_type == "skills":
-            prompt = f'From the following text, extract a list of professional skills. Text: "{user_input}"'
-            schema = {
-                "type": "OBJECT",
-                "properties": {
-                    "skills": {"type": "ARRAY", "items": {"type": "STRING"}}
-                },
-                "required": ["skills"],
-            }
-        else:
-            raise ValueError(f"Unknown resume section type: {section_type}")
-        return "json", _generate_json(client, prompt, schema)
 
     raise ValueError(f"Unknown operation: {operation}")
