@@ -46,8 +46,55 @@ SchemaCandidateProfile: dict[str, Any] = {
             "items": {"type": "STRING"},
             "description": "Key technical and soft skills.",
         },
+        "experiences": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "title": {"type": "STRING"},
+                    "company": {"type": "STRING"},
+                    "duration": {
+                        "type": "STRING",
+                        "description": 'e.g., "Jan 2020 - Present"',
+                    },
+                    "responsibilities": {
+                        "type": "ARRAY",
+                        "items": {"type": "STRING"},
+                    },
+                },
+                "required": ["title", "company", "duration", "responsibilities"],
+            },
+            "description": "Work experiences with title, company, duration, and responsibilities.",
+        },
+        "projects": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "name": {"type": "STRING"},
+                    "description": {"type": "STRING"},
+                    "technologies": {"type": "ARRAY", "items": {"type": "STRING"}},
+                    "url": {"type": "STRING"},
+                },
+                "required": ["name"],
+            },
+            "description": "Personal or professional projects.",
+        },
+        "certifications": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "name": {"type": "STRING"},
+                    "issuer": {"type": "STRING"},
+                    "date": {"type": "STRING"},
+                },
+                "required": ["name"],
+            },
+            "description": "Certifications, licenses, or credentials.",
+        },
     },
-    "required": ["full_name", "job_role", "summary", "skills"],
+    "required": ["full_name", "job_role", "summary", "skills", "experiences"],
 }
 
 SchemaResumeAnalysis: dict[str, Any] = {
@@ -170,12 +217,21 @@ def invoke(
 
     if operation == "createCandidateProfile":
         resume_text = payload.get("resumeText", "")
-        prompt = f"""You are an expert HR data extractor. Parse the following resume and extract all candidate profile information into the required JSON schema.
+        prompt = f"""You are an expert HR data extractor. Parse the following resume and extract the complete candidate profile into the required JSON schema.
 
-For any field that is not present in the resume, use an empty string "".
+Extract ALL of the following:
+- Contact and personal information (name, email, phone, location, LinkedIn, etc.)
+- Professional summary (2-4 sentences)
+- All technical and soft skills
+- All work experiences with title, company, duration, and key responsibilities for each role
+- All personal or professional projects with name, description, technologies, and URL if available
+- All certifications, licenses, or credentials with name, issuer, and date if available
+
+For any text field that is not present in the resume, use an empty string "".
 For open_to_relocation, choose from: Yes, No, or "" if not mentioned.
 For employment_type, choose from: Full-time, Part-time, Contract, Freelance, or "" if not mentioned.
 For work_authorization, choose from: Initial OPT, STEM OPT, H1-B, Green Card, US Citizen, or "" if not mentioned.
+For experiences, projects, or certifications not found, use an empty array [].
 
 Resume:
 ---

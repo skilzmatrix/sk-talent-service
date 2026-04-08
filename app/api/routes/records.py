@@ -9,8 +9,15 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File
 
+from pydantic import BaseModel, Field
+
 from app.schemas.records import CandidateProfileUpdate, CandidateRecord, JobDescriptionRecord, ResumeRecord
 from app.services import persistence_service, pinecone_service
+
+
+class TalentSearchRequest(BaseModel):
+    query: str
+    top_k: int = Field(default=5, ge=1, le=20)
 
 router = APIRouter()
 
@@ -106,10 +113,12 @@ async def get_signed_url(path: str = Query(...)) -> dict[str, str]:
 async def save_candidate(body: CandidateRecord) -> dict[str, Any]:
     result = await _run_storage_call(persistence_service.save_candidate, body.model_dump())
     candidate_id = result.get("id")
+    embedded_sections: list[str] = []
     if candidate_id:
-        asyncio.create_task(
-            asyncio.to_thread(pinecone_service.vectorize_candidate, candidate_id, result)
+        embedded_sections = await asyncio.to_thread(
+            pinecone_service.vectorize_candidate, candidate_id, result
         )
+    result["embedded_sections"] = embedded_sections
     return result
 
 
@@ -131,4 +140,22 @@ async def delete_candidate(
     resume_path: str | None = Query(default=None),
 ) -> dict[str, str]:
     await _run_storage_call(persistence_service.delete_candidate, candidate_id, resume_path)
+    asyncio.create_task(
+        asyncio.to_thread(pinecone_service.delete_candidate_vectors, candidate_id)
+    )
     return {"status": "deleted"}
+
+
+@router.post("/api/talent-search")
+async def talent_search(body: TalentSearchRequest) -> dict[str, Any]:
+    if not body.query.strip():
+        raise HTTPException(status_code=400, detail="Query text is required.")
+    try:
+        results = await asyncio.to_thread(
+            pinecone_service.search_candidates, body.query.strip(), body.top_k
+        )
+        return {"results": results}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
