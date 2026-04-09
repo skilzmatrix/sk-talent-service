@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Any
 
 import requests
@@ -23,10 +24,110 @@ EMBEDDING_API_URL = (
 EMBEDDING_DIMS = 768  # matches the Pinecone index dimension
 SECTIONS = ("summary", "skills", "experiences", "projects", "certifications")
 
+# Relative importance for role-fit (experience + skills weighted highest)
+SECTION_WEIGHTS: dict[str, float] = {
+    "experiences": 0.30,
+    "skills": 0.28,
+    "summary": 0.18,
+    "projects": 0.16,
+    "certifications": 0.08,
+}
+
+# Hybrid: dense semantic similarity + lexical JD term coverage
+_SEMANTIC_BLEND = (0.44, 0.38, 0.18)  # best, weighted_avg, breadth
+# Default share of **keyword (lexical) overlap** in final score; semantic = 1 - this.
+# Override with env `TALENT_SEARCH_KEYWORD_WEIGHT` or per-request `keyword_weight`.
+_DEFAULT_KEYWORD_WEIGHT = 0.44
+
+_STOPWORDS = frozenset(
+    """
+    a an the and or but if in on at to for of is are was were be been being
+    as by with from that this these those it its we you they he she them their
+    our your my me us will can could should would may might must shall do does did
+    have has had not no yes all any some both each few more most other such than
+    then so very just also only into about over after before between through
+    during under again further once here there when where why how what which who
+    whom about into onto upon out off down up off am being been
+    """.split()
+)
+_MAX_JD_TOKENS = 120
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _tokenize(text: str) -> set[str]:
+    """Lowercase word tokens; drops very short tokens and common stopwords."""
+    words = re.findall(r"[a-z0-9][a-z0-9+#.\-]*", text.lower())
+    out: set[str] = set()
+    for w in words:
+        w = w.strip(".-+")
+        if len(w) < 2 or w in _STOPWORDS:
+            continue
+        out.add(w)
+    return out
+
+
+def _jd_tokens_for_overlap(jd: str) -> set[str]:
+    """Cap JD vocabulary so long postings don't crush lexical scores."""
+    toks = _tokenize(jd)
+    if len(toks) <= _MAX_JD_TOKENS:
+        return toks
+    # Prefer longer tokens (often technologies: kubernetes, typescript)
+    ranked = sorted(toks, key=len, reverse=True)
+    return set(ranked[:_MAX_JD_TOKENS])
+
+
+def _lexical_coverage(jd: str, resume_corpus: str) -> float:
+    """Share of informative JD terms that appear in resume text [0, 1]."""
+    jd_toks = _jd_tokens_for_overlap(jd)
+    if not jd_toks:
+        return 0.0
+    resume_toks = _tokenize(resume_corpus)
+    if not resume_toks:
+        return 0.0
+    hits = len(jd_toks & resume_toks)
+    return hits / len(jd_toks)
+
+
+def _weighted_section_avg(sections: list[dict[str, Any]]) -> float:
+    """Mean cosine score weighted by SECTION_WEIGHTS for matched sections only."""
+    num = 0.0
+    den = 0.0
+    for m in sections:
+        sec = m.get("section", "")
+        w = SECTION_WEIGHTS.get(sec, 0.12)
+        num += w * float(m["score"])
+        den += w
+    return num / den if den > 0 else 0.0
+
+
+def _semantic_composite(best: float, weighted_avg: float, breadth: float) -> float:
+    a, b, c = _SEMANTIC_BLEND
+    return a * best + b * weighted_avg + c * breadth
+
+
+def resolve_keyword_weight(explicit: float | None) -> tuple[float, float]:
+    """Return (semantic_weight, keyword_weight) for the final hybrid; both in [0, 1], sum to 1."""
+    if explicit is not None:
+        kw = max(0.0, min(1.0, float(explicit)))
+    else:
+        raw = os.environ.get("TALENT_SEARCH_KEYWORD_WEIGHT", "").strip()
+        if raw:
+            try:
+                kw = max(0.0, min(1.0, float(raw)))
+            except ValueError:
+                kw = _DEFAULT_KEYWORD_WEIGHT
+        else:
+            kw = _DEFAULT_KEYWORD_WEIGHT
+    sem = 1.0 - kw
+    return sem, kw
+
+
+def _hybrid_score(semantic: float, lexical: float, w_sem: float, w_kw: float) -> float:
+    return w_sem * semantic + w_kw * lexical
+
 
 def _embed_text(text: str, api_key: str) -> list[float]:
     """Embed a single string using the Google AI REST API."""
@@ -175,13 +276,22 @@ def upsert_candidate_vectors(candidate_id: str, record: dict[str, Any]) -> list[
     return embedded_sections
 
 
-def query_candidates(query_text: str, top_k: int = 25) -> list[dict[str, Any]]:
-    """Embed the query text and search Pinecone for matching candidate sections.
+def query_candidates(
+    query_text: str,
+    top_k: int = 25,
+    *,
+    keyword_weight: float | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, float]]:
+    """Embed the JD, query Pinecone, rank by hybrid score (semantic + keyword overlap).
 
-    Returns raw Pinecone matches (id, score, metadata) grouped and ranked by candidate.
-    We fetch top_k individual section matches, then aggregate by candidate_id
-    and return the top candidates sorted by best match score.
+    ``keyword_weight`` is the fraction of the final score from lexical overlap (0–1).
+    If omitted, uses ``TALENT_SEARCH_KEYWORD_WEIGHT`` or the module default.
+
+    Returns ``(results, {"semantic": w_sem, "keyword": w_kw})`` for API transparency.
     """
+    w_sem, w_kw = resolve_keyword_weight(keyword_weight)
+    ranking_weights = {"semantic": round(w_sem, 4), "keyword": round(w_kw, 4)}
+
     gemini_key = (
         os.environ.get("GEMINI_API_KEY", "").strip()
         or os.environ.get("API_KEY", "").strip()
@@ -241,21 +351,26 @@ def query_candidates(query_text: str, top_k: int = 25) -> list[dict[str, Any]]:
         best = max(scores) if scores else 0.0
         avg = sum(scores) / len(scores) if scores else 0.0
         breadth = min(len(sections) / num_section_types, 1.0)
-        # Composite: peak similarity + consistency across sections + coverage bonus
-        composite = 0.52 * best + 0.33 * avg + 0.15 * breadth
+        wavg = _weighted_section_avg(sections)
+        semantic = _semantic_composite(best, wavg, breadth)
+        corpus = " ".join(str(m.get("text", "")) for m in sections)
+        lexical = _lexical_coverage(query_text, corpus)
+        hybrid = _hybrid_score(semantic, lexical, w_sem, w_kw)
         finalized.append({
             "candidate_id": entry["candidate_id"],
             "full_name": entry["full_name"],
             "job_role": entry["job_role"],
             "best_score": round(best, 4),
             "avg_score": round(avg, 4),
-            "composite_score": round(composite, 4),
+            "composite_score": round(hybrid, 4),
+            "semantic_composite": round(semantic, 4),
+            "lexical_score": round(lexical, 4),
             "sections_matched": len(sections),
             "matched_sections": sections,
         })
 
     finalized.sort(key=lambda c: c["composite_score"], reverse=True)
-    return finalized
+    return finalized, ranking_weights
 
 
 def delete_candidate_vectors(candidate_id: str) -> None:

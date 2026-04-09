@@ -43,5 +43,9 @@ def get_candidates() -> list[dict[str, Any]]:
     return supabase_operations.get_candidates()
 
 
+def get_candidate_by_id(candidate_id: str) -> dict[str, Any] | None:
+    return supabase_operations.get_candidate_by_id(candidate_id)
+
+
 def delete_candidate(candidate_id: str, resume_path: str | None = None) -> None:
     supabase_operations.delete_candidate(candidate_id, resume_path)

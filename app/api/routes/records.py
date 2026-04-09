@@ -3,21 +3,29 @@
 from __future__ import annotations
 
 import asyncio
+from functools import partial
 from typing import Any, Callable
 
 import uuid
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File
+from google import genai
 
 from pydantic import BaseModel, Field
 
+from app.core.config import GEMINI_API_KEY
 from app.schemas.records import CandidateProfileUpdate, CandidateRecord, JobDescriptionRecord, ResumeRecord
-from app.services import persistence_service, pinecone_service
+from app.services import persistence_service, pinecone_service, talent_search_service
 
 
 class TalentSearchRequest(BaseModel):
     query: str
     top_k: int = Field(default=5, ge=1, le=20)
+    # Fraction of final score from JD keyword overlap (0–1). Semantic uses the remainder.
+    # If omitted, uses env TALENT_SEARCH_KEYWORD_WEIGHT or server default.
+    keyword_weight: float | None = Field(default=None, ge=0.0, le=1.0)
+    # When True, Gemini reranks the vector top‑K using full DB profiles and adds reasoning.
+    use_llm_rerank: bool = Field(default=True)
 
 router = APIRouter()
 
@@ -150,11 +158,30 @@ async def delete_candidate(
 async def talent_search(body: TalentSearchRequest) -> dict[str, Any]:
     if not body.query.strip():
         raise HTTPException(status_code=400, detail="Query text is required.")
+    gemini_client: genai.Client | None = None
+    if GEMINI_API_KEY:
+        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
     try:
-        results = await asyncio.to_thread(
-            pinecone_service.search_candidates, body.query.strip(), body.top_k
+        results, ranking_weights, meta = await asyncio.to_thread(
+            partial(
+                talent_search_service.run_talent_search,
+                body.query.strip(),
+                body.top_k,
+                body.keyword_weight,
+                gemini_client,
+                use_llm_rerank=body.use_llm_rerank,
+            )
         )
-        return {"results": results}
+        out: dict[str, Any] = {
+            "results": results,
+            "ranking_weights": ranking_weights,
+            "llm_rerank": meta.get("llm_rerank"),
+        }
+        if meta.get("llm_error"):
+            out["llm_error"] = meta["llm_error"]
+        if meta.get("llm_hint"):
+            out["llm_hint"] = meta["llm_hint"]
+        return out
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:

@@ -177,6 +177,57 @@ SchemaResumeAnalysis: dict[str, Any] = {
     "required": ["summary", "skills", "experiences"],
 }
 
+SchemaTalentSearchRerank: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {
+        "rankings": {
+            "type": "ARRAY",
+            "description": "One entry per candidate, ordered by fit (rank 1 = best).",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "candidate_id": {
+                        "type": "STRING",
+                        "description": "Must match a candidate_id from the input list exactly.",
+                    },
+                    "rank": {
+                        "type": "INTEGER",
+                        "description": "1 = strongest match for this job among the given candidates.",
+                    },
+                    "fit_score": {
+                        "type": "INTEGER",
+                        "description": "Overall fit for THIS job description, 0–100.",
+                    },
+                    "reasoning": {
+                        "type": "STRING",
+                        "description": "2–4 sentences: why this score and rank, grounded in the profile vs the JD.",
+                    },
+                    "key_strengths": {
+                        "type": "ARRAY",
+                        "items": {"type": "STRING"},
+                        "description": "Up to 4 short bullets: strongest evidence of fit.",
+                    },
+                    "key_gaps": {
+                        "type": "ARRAY",
+                        "items": {"type": "STRING"},
+                        "description": "Up to 4 short bullets: gaps vs the JD (skills, seniority, domain).",
+                    },
+                },
+                "required": [
+                    "candidate_id",
+                    "rank",
+                    "fit_score",
+                    "reasoning",
+                    "key_strengths",
+                    "key_gaps",
+                ],
+            },
+        }
+    },
+    "required": ["rankings"],
+}
+
+
 def _generate_text(client: genai.Client, prompt: str) -> str:
     response = client.models.generate_content(model=MODEL, contents=prompt)
     return (response.text or "").strip()
@@ -313,5 +364,33 @@ Resume:
       2.  **Optimized Job Ad:**
           - Provide the full, rewritten job advertisement incorporating all your recommendations."""
         return "text", _generate_text(client, prompt)
+
+    if operation == "rerankTalentSearch":
+        job_description = (payload.get("jobDescription") or "").strip()
+        candidates = payload.get("candidates") or []
+        candidates_json = json.dumps(candidates, ensure_ascii=False, indent=2)
+        prompt = f"""You are a senior technical recruiter. Your task is to rank every candidate for ONE specific job.
+
+You are given the job description and a JSON array of candidates. Each item has "candidate_id" and "profile" (summary, skills, experiences, projects, certifications, etc.).
+
+**Job description**
+---
+{job_description}
+---
+
+**Candidates (JSON)**
+---
+{candidates_json}
+---
+
+**Instructions**
+1. Rank ALL candidates from best fit (rank = 1) to weakest among this set only.
+2. You MUST output exactly one ranking row per candidate_id in the input — no omissions, no extras.
+3. fit_score (0–100) reflects holistic suitability: required skills, seniority, domain, impact, and obvious red flags vs this JD.
+4. reasoning must cite concrete evidence from the profiles (roles, technologies, years) and gaps vs the JD.
+5. key_strengths / key_gaps: short phrases (arrays may be empty if none).
+
+Return only valid JSON matching the schema."""
+        return "json", _generate_json(client, prompt, SchemaTalentSearchRerank)
 
     raise ValueError(f"Unknown operation: {operation}")

@@ -166,6 +166,20 @@ def get_candidates() -> list[dict[str, Any]]:
     return response.data or []
 
 
+def get_candidate_by_id(candidate_id: str) -> dict[str, Any] | None:
+    client = _client()
+    response = (
+        client.table("candidates")
+        .select("*")
+        .eq("id", candidate_id)
+        .limit(1)
+        .execute()
+    )
+    if response.data:
+        return response.data[0]
+    return None
+
+
 def delete_candidate(candidate_id: str, resume_path: str | None = None) -> None:
     client = _client()
     if resume_path:

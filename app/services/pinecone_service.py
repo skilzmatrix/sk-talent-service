@@ -19,13 +19,20 @@ def vectorize_candidate(candidate_id: str, record: dict[str, Any]) -> list[str]:
         return []
 
 
-def search_candidates(query_text: str, top_k: int = 5) -> list[dict[str, Any]]:
-    """Search for top matching candidates given a job description."""
+def search_candidates(
+    query_text: str,
+    top_k: int = 5,
+    keyword_weight: float | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, float]]:
+    """Search for top candidates; returns (results, ranking_weights) with semantic/keyword shares."""
     try:
-        # Fetch enough section-level hits to fairly rank candidates (composite score needs breadth).
         section_fetch = max(40, top_k * 10)
-        results = pinecone_operations.query_candidates(query_text, top_k=section_fetch)
-        return results[:top_k]
+        results, weights = pinecone_operations.query_candidates(
+            query_text,
+            top_k=section_fetch,
+            keyword_weight=keyword_weight,
+        )
+        return results[:top_k], weights
     except Exception:
         logger.exception("Failed to search candidates")
         raise
