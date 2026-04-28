@@ -8,7 +8,9 @@ from typing import Any, Literal
 from google import genai
 from google.genai import types
 
-MODEL = "gemini-2.5-flash"
+from app.core.config import GEMINI_MODEL
+
+MODEL = GEMINI_MODEL
 
 SchemaCandidateProfile: dict[str, Any] = {
     "type": "OBJECT",
@@ -177,6 +179,30 @@ SchemaResumeAnalysis: dict[str, Any] = {
     "required": ["summary", "skills", "experiences"],
 }
 
+SchemaCandidateComparison: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {
+        "markdown_report": {
+            "type": "STRING",
+            "description": "The detailed comparison report in Markdown format. Includes overall summary, side-by-side comparison, strengths & weaknesses, and final recommendation."
+        },
+        "skills_chart_data": {
+            "type": "ARRAY",
+            "description": "A list of 5-8 key skills derived from the job description to compare the candidates.",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "skill": {"type": "STRING"},
+                    "candidate_a_score": {"type": "INTEGER", "description": "Score from 0 to 10 for Candidate A on this skill"},
+                    "candidate_b_score": {"type": "INTEGER", "description": "Score from 0 to 10 for Candidate B on this skill"}
+                },
+                "required": ["skill", "candidate_a_score", "candidate_b_score"]
+            }
+        }
+    },
+    "required": ["markdown_report", "skills_chart_data"]
+}
+
 SchemaTalentSearchRerank: dict[str, Any] = {
     "type": "OBJECT",
     "properties": {
@@ -340,12 +366,15 @@ Resume:
       {resume_b}
       ---
 
-      Please provide a detailed comparison in Markdown format. Your analysis should include:
+      Please provide a detailed comparison. Your analysis should include:
       1.  **Overall Summary:** A brief, high-level summary of each candidate's suitability for the role.
       2.  **Side-by-Side Comparison:** A table comparing the candidates on key aspects from the job description (e.g., required skills, years of experience, specific technologies). Rate each candidate on each aspect (e.g., "Strong Match", "Partial Match", "Not Mentioned").
       3.  **Strengths & Weaknesses:** A bulleted list of strengths and potential weaknesses for each candidate.
-      4.  **Final Recommendation:** Your final recommendation on which candidate seems to be a better fit and why."""
-        return "text", _generate_text(client, prompt)
+      4.  **Final Recommendation:** Your final recommendation on which candidate seems to be a better fit and why.
+      
+      Output this analysis as a Markdown formatted string in the 'markdown_report' field.
+      Additionally, extract 5-8 key skills from the job description and rate both candidates from 0 to 10 on each skill, outputting this data in the 'skills_chart_data' field."""
+        return "json", _generate_json(client, prompt, SchemaCandidateComparison)
 
     if operation == "optimizeJobAd":
         job_ad_text = payload.get("jobAdText", "")

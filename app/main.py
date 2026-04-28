@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import warnings
+
+# LangChain's Google integration may emit FutureWarning on import; keep dev logs readable.
+warnings.filterwarnings("ignore", category=FutureWarning, module="langchain_google_genai.chat_models")
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 

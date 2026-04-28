@@ -310,8 +310,10 @@ def query_candidates(
     results = index.query(vector=query_vector, top_k=top_k, include_metadata=True)
 
     candidates: dict[str, dict[str, Any]] = {}
-    for match in results.get("matches", []):
-        meta = match.get("metadata", {})
+    for match in results.get("matches", []) or []:
+        meta = match.get("metadata") or {} if hasattr(match, "get") else {}
+        if not isinstance(meta, dict):
+            meta = {}
         cid = meta.get("candidate_id", "")
         if not cid:
             continue
