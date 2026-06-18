@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 
 from app.agent import agent_app, load_chat_history, save_chat_history
 
@@ -46,8 +46,22 @@ def _extract_text_from_chunk(content: object) -> str:
                 elif part_type is None and "text" in part:
                     # Fallback: dict has "text" but no "type" discriminator
                     chunks.append(part.get("text", ""))
+            elif hasattr(part, "text"):
+                # Some SDK revisions emit typed objects instead of plain dicts.
+                chunks.append(str(getattr(part, "text") or ""))
                 # "thinking" / "tool_use" / etc. are intentionally skipped
         return "".join(chunks)
+    return ""
+
+
+def _extract_last_ai_text(messages: list | None) -> str:
+    """Return the most recent AI message text from final graph messages."""
+    if not messages:
+        return ""
+
+    for msg in reversed(messages):
+        if isinstance(msg, AIMessage):
+            return _extract_text_from_chunk(msg.content)
     return ""
 
 
@@ -66,6 +80,7 @@ async def stream_agent(conversation_id: str, message: str) -> AsyncGenerator[str
     state = {"messages": history}
 
     final_messages: list | None = None
+    emitted_text = False
 
     try:
         async for event in agent_app.astream_events(state, version="v2"):
@@ -76,6 +91,7 @@ async def stream_agent(conversation_id: str, message: str) -> AsyncGenerator[str
                 chunk = event["data"]["chunk"]
                 text = _extract_text_from_chunk(chunk.content)
                 if text:
+                    emitted_text = True
                     yield json.dumps({"type": "text", "content": text})
 
             # ── Tool lifecycle ────────────────────────────────────────────────
@@ -115,6 +131,12 @@ async def stream_agent(conversation_id: str, message: str) -> AsyncGenerator[str
                 "No final messages captured for conversation %s; history not saved.",
                 conversation_id,
             )
+
+        # Fallback for model integrations that do not emit token stream events.
+        if not emitted_text:
+            final_text = _extract_last_ai_text(final_messages)
+            if final_text:
+                yield json.dumps({"type": "text", "content": final_text})
 
         yield json.dumps({"type": "done"})
 
