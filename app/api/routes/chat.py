@@ -5,7 +5,7 @@ import logging
 from typing import AsyncGenerator
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from sse_starlette.sse import EventSourceResponse
 
 from langchain_core.messages import AIMessage, HumanMessage
@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 
 class ChatRequest(BaseModel):
     message: str
+    attachments: list[dict[str, object]] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="allow")
 
 
 router = APIRouter()
@@ -65,7 +68,21 @@ def _extract_last_ai_text(messages: list | None) -> str:
     return ""
 
 
-async def stream_agent(conversation_id: str, message: str) -> AsyncGenerator[str, None]:
+def _build_human_message(request: ChatRequest) -> HumanMessage:
+    attachment_metadata: dict[str, object] = {}
+    if request.attachments:
+        attachment_metadata["attachments"] = request.attachments
+
+    extra_payload = getattr(request, "model_extra", None) or {}
+    if extra_payload:
+        attachment_metadata.update(extra_payload)
+
+    if attachment_metadata:
+        return HumanMessage(content=request.message, additional_kwargs=attachment_metadata)
+    return HumanMessage(content=request.message)
+
+
+async def stream_agent(conversation_id: str, request: ChatRequest) -> AsyncGenerator[str, None]:
     """Run the ReAct agent and stream SSE events to the client.
 
     Event types emitted:
@@ -76,7 +93,7 @@ async def stream_agent(conversation_id: str, message: str) -> AsyncGenerator[str
       {"type": "error",      "content": str}            – unhandled exception
     """
     history = load_chat_history(conversation_id)
-    history.append(HumanMessage(content=message))
+    history.append(_build_human_message(request))
     state = {"messages": history}
 
     final_messages: list | None = None
@@ -155,7 +172,8 @@ async def chat_stream(conversation_id: str, request: ChatRequest):
     """Stream the agentic response back to the client using Server-Sent Events."""
     if not request.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty.")
-    return EventSourceResponse(stream_agent(conversation_id, request.message.strip()))
+    request.message = request.message.strip()
+    return EventSourceResponse(stream_agent(conversation_id, request))
 
 
 @router.get("/api/chat")
