@@ -25,6 +25,64 @@ class ChatRequest(BaseModel):
 router = APIRouter()
 
 
+def _merge_last_human_attachments(messages: list | None, current_human: HumanMessage) -> list | None:
+    """Ensure the latest user turn keeps attachment metadata before persistence.
+
+    Some agent runtimes may recreate HumanMessage objects and drop
+    ``additional_kwargs``. This merge keeps the latest turn's attachments stable
+    for history reload and chip rendering.
+    """
+    if not messages:
+        return messages
+
+    expected_content = current_human.content
+    expected_kwargs = current_human.additional_kwargs or {}
+    expected_attachments = expected_kwargs.get("attachments")
+    if not expected_attachments:
+        return messages
+
+    for idx in range(len(messages) - 1, -1, -1):
+        msg = messages[idx]
+        if not isinstance(msg, HumanMessage):
+            continue
+        if msg.content != expected_content:
+            continue
+
+        merged_kwargs = dict(msg.additional_kwargs or {})
+        merged_kwargs.update(expected_kwargs)
+        messages[idx] = HumanMessage(content=msg.content, additional_kwargs=merged_kwargs)
+        return messages
+
+    return messages
+
+
+def _inject_message_attachments_for_client(messages: object) -> object:
+    """Add ``data.attachments`` derived from ``data.additional_kwargs.attachments``.
+
+    This keeps backward compatibility for chat UIs that render chips from a
+    direct attachments field when loading historical messages.
+    """
+    if not isinstance(messages, list):
+        return messages
+
+    out: list[object] = []
+    for item in messages:
+        if not isinstance(item, dict):
+            out.append(item)
+            continue
+
+        msg_copy = dict(item)
+        data = msg_copy.get("data")
+        if isinstance(data, dict):
+            data_copy = dict(data)
+            kwargs = data_copy.get("additional_kwargs")
+            if isinstance(kwargs, dict) and "attachments" in kwargs and "attachments" not in data_copy:
+                data_copy["attachments"] = kwargs.get("attachments")
+            msg_copy["data"] = data_copy
+        out.append(msg_copy)
+    return out
+
+
 def _extract_text_from_chunk(content: object) -> str:
     """Extract plain text from a streaming chunk's content field.
 
@@ -93,7 +151,8 @@ async def stream_agent(conversation_id: str, request: ChatRequest) -> AsyncGener
       {"type": "error",      "content": str}            – unhandled exception
     """
     history = load_chat_history(conversation_id)
-    history.append(_build_human_message(request))
+    current_human = _build_human_message(request)
+    history.append(current_human)
     state = {"messages": history}
 
     final_messages: list | None = None
@@ -142,6 +201,7 @@ async def stream_agent(conversation_id: str, request: ChatRequest) -> AsyncGener
 
         # ── Persist after the run completes (single run, no double-invoke) ──
         if final_messages is not None:
+            final_messages = _merge_last_human_attachments(final_messages, current_human)
             save_chat_history(conversation_id, list(final_messages))
         else:
             logger.warning(
@@ -189,7 +249,13 @@ async def get_conversations():
             .order("updated_at", desc=True)
             .execute()
         )
-        return {"conversations": response.data}
+        conversations = response.data or []
+        normalized: list[dict[str, object]] = []
+        for row in conversations:
+            row_copy = dict(row)
+            row_copy["messages"] = _inject_message_attachments_for_client(row_copy.get("messages"))
+            normalized.append(row_copy)
+        return {"conversations": normalized}
     except Exception as exc:
         logger.error("Failed to fetch conversations: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch conversations")
