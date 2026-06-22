@@ -1,16 +1,20 @@
 """Chat endpoint routes."""
 
+import asyncio
 import json
 import logging
+import uuid
 from typing import AsyncGenerator
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sse_starlette.sse import EventSourceResponse
 
 from langchain_core.messages import AIMessage, HumanMessage
 
 from app.agent import agent_app, load_chat_history, save_chat_history
+from app.services import persistence_service
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +27,26 @@ class ChatRequest(BaseModel):
 
 
 router = APIRouter()
+
+CHAT_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024
+CHAT_ALLOWED_CONTENT_TYPES = {
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+CHAT_ALLOWED_EXTENSIONS = {"pdf", "doc", "docx"}
+
+
+def _bad_request(detail: str) -> JSONResponse:
+    return JSONResponse(status_code=400, content=[{"detail": detail}])
+
+
+def _build_chat_attachment_name(filename: str | None) -> str:
+    ext = filename.rsplit(".", 1)[-1].lower() if filename and "." in filename else ""
+    if ext not in CHAT_ALLOWED_EXTENSIONS:
+        allowed = ", ".join(sorted(f".{item}" for item in CHAT_ALLOWED_EXTENSIONS))
+        raise ValueError(f"Unsupported file type. Allowed extensions: {allowed}.")
+    return f"{uuid.uuid4().hex}.{ext}"
 
 
 def _merge_last_human_attachments(messages: list | None, current_human: HumanMessage) -> list | None:
@@ -236,6 +260,141 @@ async def chat_stream(conversation_id: str, request: ChatRequest):
     return EventSourceResponse(stream_agent(conversation_id, request))
 
 
+@router.post("/api/chat/attachments/upload", status_code=201, response_model=None)
+async def upload_chat_attachment(
+    file: UploadFile | None = File(default=None),
+    conversation_id: str | None = Form(default=None),
+) -> dict[str, object] | JSONResponse:
+    if file is None:
+        return _bad_request("Field 'file' is required.")
+
+    content_type = (file.content_type or "").strip().lower()
+    if content_type not in CHAT_ALLOWED_CONTENT_TYPES:
+        return _bad_request("Unsupported file content type.")
+
+    normalized_conversation_id: str | None = None
+    if conversation_id and conversation_id.strip():
+        try:
+            normalized_conversation_id = str(uuid.UUID(conversation_id.strip()))
+        except ValueError:
+            return _bad_request("Field 'conversation_id' must be a valid UUID.")
+
+    try:
+        unique_name = _build_chat_attachment_name(file.filename)
+    except ValueError as exc:
+        return _bad_request(str(exc))
+
+    file_bytes = await file.read()
+    if len(file_bytes) > CHAT_ATTACHMENT_MAX_BYTES:
+        return _bad_request("File size exceeds 25 MB limit.")
+
+    try:
+        attachment_record = await asyncio.to_thread(
+            persistence_service.upload_chat_attachment,
+            unique_name,
+            file_bytes,
+            content_type,
+            len(file_bytes),
+            normalized_conversation_id,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    storage_key = str(attachment_record.get("storage_key") or "")
+    file_url = ""
+    try:
+        if storage_key:
+            file_url = await asyncio.to_thread(persistence_service.get_signed_resume_url, storage_key)
+    except Exception:
+        file_url = ""
+
+    return {
+        "id": attachment_record.get("id"),
+        "file_url": file_url,
+        "file_name": attachment_record.get("file_name") or file.filename or unique_name,
+        "mime_type": attachment_record.get("mime_type") or content_type,
+        "storage_key": storage_key,
+        "size": attachment_record.get("size_bytes", len(file_bytes)),
+        "conversation_id": attachment_record.get("conversation_id") or normalized_conversation_id,
+        "created_at": attachment_record.get("created_at"),
+        # Backward compatible aliases used by older frontend clients.
+        "path": storage_key,
+        "name": attachment_record.get("file_name") or file.filename or unique_name,
+        "content_type": attachment_record.get("mime_type") or content_type,
+    }
+
+
+@router.get("/api/chat/{conversation_id}/attachments")
+async def list_chat_attachments(conversation_id: str):
+    try:
+        normalized_conversation_id = str(uuid.UUID(conversation_id))
+    except ValueError:
+        return _bad_request("Path param 'conversation_id' must be a valid UUID.")
+
+    try:
+        rows = await asyncio.to_thread(
+            persistence_service.list_chat_attachments,
+            normalized_conversation_id,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    attachments: list[dict[str, object]] = []
+    for row in rows:
+        storage_key = str(row.get("storage_key") or "")
+        file_url = ""
+        try:
+            if storage_key:
+                file_url = await asyncio.to_thread(
+                    persistence_service.get_signed_resume_url,
+                    storage_key,
+                )
+        except Exception:
+            file_url = ""
+
+        attachments.append(
+            {
+                "id": row.get("id"),
+                "conversation_id": row.get("conversation_id"),
+                "file_name": row.get("file_name"),
+                "mime_type": row.get("mime_type"),
+                "size": row.get("size_bytes", 0),
+                "storage_key": storage_key,
+                "file_url": file_url,
+                "created_at": row.get("created_at"),
+            }
+        )
+
+    return {"attachments": attachments}
+
+
+@router.delete("/api/chat/attachments/{attachment_id}")
+async def delete_chat_attachment(attachment_id: str):
+    try:
+        normalized_attachment_id = str(uuid.UUID(attachment_id))
+    except ValueError:
+        return _bad_request("Path param 'attachment_id' must be a valid UUID.")
+
+    try:
+        deleted = await asyncio.to_thread(
+            persistence_service.delete_chat_attachment,
+            normalized_attachment_id,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if deleted is None:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+
+    return {"success": True, "attachment_id": normalized_attachment_id}
+
+
 @router.get("/api/chat")
 async def get_conversations():
     """Return all chat histories from Supabase, ordered newest first."""
@@ -265,10 +424,10 @@ async def get_conversations():
 async def delete_conversation(conversation_id: str):
     """Delete a chat history from Supabase."""
     try:
-        from app.supabase_operations import _client
-
-        client = _client()
-        client.table("chat_histories").delete().eq("conversation_id", conversation_id).execute()
+        await asyncio.to_thread(
+            persistence_service.delete_conversation_with_attachments,
+            conversation_id,
+        )
         return {"success": True}
     except Exception as exc:
         logger.error(

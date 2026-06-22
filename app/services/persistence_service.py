@@ -27,6 +27,34 @@ def upload_candidate_resume(file_name: str, file_bytes: bytes, content_type: str
     return supabase_operations.upload_candidate_resume(file_name, file_bytes, content_type)
 
 
+def upload_chat_attachment(
+    file_name: str,
+    file_bytes: bytes,
+    content_type: str,
+    size_bytes: int,
+    conversation_id: str | None = None,
+) -> dict[str, Any]:
+    return supabase_operations.upload_chat_attachment(
+        file_name,
+        file_bytes,
+        content_type,
+        size_bytes,
+        conversation_id,
+    )
+
+
+def list_chat_attachments(conversation_id: str) -> list[dict[str, Any]]:
+    return supabase_operations.list_chat_attachments(conversation_id)
+
+
+def delete_chat_attachment(attachment_id: str) -> dict[str, Any] | None:
+    return supabase_operations.delete_chat_attachment(attachment_id)
+
+
+def delete_conversation_with_attachments(conversation_id: str) -> None:
+    supabase_operations.delete_conversation_with_attachments(conversation_id)
+
+
 def get_signed_resume_url(path: str) -> str:
     return supabase_operations.get_signed_resume_url(path)
 
