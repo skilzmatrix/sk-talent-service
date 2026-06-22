@@ -29,6 +29,19 @@ class TalentSearchRequest(BaseModel):
 
 router = APIRouter()
 
+ALLOWED_RESUME_EXTENSIONS = {"pdf", "docx"}
+
+
+def _build_resume_upload_name(filename: str | None) -> str:
+    ext = filename.rsplit(".", 1)[-1].lower() if filename and "." in filename else ""
+    if ext not in ALLOWED_RESUME_EXTENSIONS:
+        allowed = ", ".join(sorted(f".{item}" for item in ALLOWED_RESUME_EXTENSIONS))
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported resume file type. Allowed types: {allowed}.",
+        )
+    return f"{uuid.uuid4().hex}.{ext}"
+
 
 def _raise_storage_error(exc: Exception) -> None:
     if isinstance(exc, RuntimeError):
@@ -47,8 +60,7 @@ async def _run_storage_call(fn: Callable[..., Any], *args: Any) -> Any:
 async def upload_resume_file(file: UploadFile = File(...)) -> dict[str, str]:
     try:
         file_bytes = await file.read()
-        ext = file.filename.rsplit(".", 1)[-1] if file.filename else "pdf"
-        unique_name = f"{uuid.uuid4().hex}.{ext}"
+        unique_name = _build_resume_upload_name(file.filename)
         url = await asyncio.to_thread(
             persistence_service.upload_candidate_resume,
             unique_name,
@@ -56,6 +68,8 @@ async def upload_resume_file(file: UploadFile = File(...)) -> dict[str, str]:
             file.content_type or "application/octet-stream",
         )
         return {"url": url}
+    except HTTPException:
+        raise
     except Exception as exc:
         _raise_storage_error(exc)
         return {"url": ""}
@@ -87,8 +101,7 @@ async def get_job_descriptions() -> list[dict[str, Any]]:
 async def upload_candidate_resume(file: UploadFile = File(...)) -> dict[str, str]:
     try:
         file_bytes = await file.read()
-        ext = file.filename.rsplit(".", 1)[-1] if file.filename else "pdf"
-        unique_name = f"{uuid.uuid4().hex}.{ext}"
+        unique_name = _build_resume_upload_name(file.filename)
         url = await asyncio.to_thread(
             persistence_service.upload_candidate_resume,
             unique_name,
@@ -96,6 +109,8 @@ async def upload_candidate_resume(file: UploadFile = File(...)) -> dict[str, str
             file.content_type or "application/octet-stream",
         )
         return {"url": url}
+    except HTTPException:
+        raise
     except Exception as exc:
         _raise_storage_error(exc)
         return {"url": ""}
