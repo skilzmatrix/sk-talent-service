@@ -14,7 +14,13 @@ from google import genai
 from pydantic import BaseModel, Field
 
 from app.core.config import GEMINI_API_KEY
-from app.schemas.records import CandidateProfileUpdate, CandidateRecord, JobDescriptionRecord, ResumeRecord
+from app.schemas.records import (
+    CandidateProfileUpdate,
+    CandidateRecord,
+    JobDescriptionRecord,
+    PaginatedRecordsResponse,
+    ResumeRecord,
+)
 from app.services import persistence_service, pinecone_service, talent_search_service
 
 
@@ -81,8 +87,16 @@ async def save_resume(body: ResumeRecord) -> dict[str, Any]:
 
 
 @router.get("/api/resumes")
-async def get_resumes() -> list[dict[str, Any]]:
-    return await _run_storage_call(persistence_service.get_resumes)
+async def get_resumes(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+) -> PaginatedRecordsResponse:
+    data = await _run_storage_call(
+        persistence_service.get_resumes_paginated,
+        page,
+        page_size,
+    )
+    return PaginatedRecordsResponse.model_validate(data)
 
 
 @router.post("/api/job-descriptions", status_code=201)
@@ -153,8 +167,18 @@ async def update_candidate(candidate_id: str, body: CandidateProfileUpdate) -> d
 
 
 @router.get("/api/candidates")
-async def get_candidates() -> list[dict[str, Any]]:
-    return await _run_storage_call(persistence_service.get_candidates)
+async def get_candidates(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    q: str | None = Query(default=None),
+) -> PaginatedRecordsResponse:
+    data = await _run_storage_call(
+        persistence_service.get_candidates_paginated,
+        page,
+        page_size,
+        q,
+    )
+    return PaginatedRecordsResponse.model_validate(data)
 
 
 @router.delete("/api/candidates/{candidate_id}", status_code=200)

@@ -152,13 +152,27 @@ backend/
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `POST` | `/api/resumes` | Save a parsed resume |
-| `GET` | `/api/resumes` | List all saved resumes (newest first) |
+| `GET` | `/api/resumes` | List paginated resumes (`page`, `page_size`) |
 | `POST` | `/api/job-descriptions` | Save a generated job description |
 | `GET` | `/api/job-descriptions` | List all saved job descriptions |
 | `POST` | `/api/candidates` | Save a candidate profile |
-| `GET` | `/api/candidates` | List all saved candidates |
+| `GET` | `/api/candidates` | List paginated candidates (`page`, `page_size`) |
 
 Supabase endpoints return `503` if the Supabase environment variables are not configured.
+
+`GET /api/resumes` and `GET /api/candidates` now return:
+
+```json
+{
+   "items": [],
+   "page": 1,
+   "page_size": 20,
+   "total_items": 0,
+   "total_pages": 0,
+   "has_next": false,
+   "has_previous": false
+}
+```
 
 ### Interactive Docs
 

@@ -49,6 +49,30 @@ def get_resumes() -> list[dict[str, Any]]:
     return response.data or []
 
 
+def get_resumes_paginated(page: int, page_size: int) -> dict[str, Any]:
+    client = _client()
+    start = (page - 1) * page_size
+    end = start + page_size - 1
+    response = (
+        client.table("resumes")
+        .select("*", count="exact")
+        .order("created_at", desc=True)
+        .range(start, end)
+        .execute()
+    )
+    total_items = int(response.count or 0)
+    total_pages = (total_items + page_size - 1) // page_size if total_items else 0
+    return {
+        "items": response.data or [],
+        "page": page,
+        "page_size": page_size,
+        "total_items": total_items,
+        "total_pages": total_pages,
+        "has_next": page < total_pages,
+        "has_previous": page > 1,
+    }
+
+
 def save_job_description(record: dict[str, Any]) -> dict[str, Any]:
     client = _client()
     response = (
@@ -280,6 +304,42 @@ def get_candidates() -> list[dict[str, Any]]:
         .execute()
     )
     return response.data or []
+
+
+def get_candidates_paginated(page: int, page_size: int, query: str | None = None) -> dict[str, Any]:
+    client = _client()
+    start = (page - 1) * page_size
+    end = start + page_size - 1
+    db_query = client.table("candidates").select("*", count="exact")
+    term = (query or "").strip()
+    if term:
+        safe_term = term.replace("%", "").replace(",", " ")
+        pattern = f"%{safe_term}%"
+        db_query = db_query.or_(
+            ",".join(
+                [
+                    f"full_name.ilike.{pattern}",
+                    f"job_role.ilike.{pattern}",
+                    f"summary.ilike.{pattern}",
+                    f"email.ilike.{pattern}",
+                    f"location.ilike.{pattern}",
+                    f"domain_industry.ilike.{pattern}",
+                ]
+            )
+        )
+
+    response = db_query.order("created_at", desc=True).range(start, end).execute()
+    total_items = int(response.count or 0)
+    total_pages = (total_items + page_size - 1) // page_size if total_items else 0
+    return {
+        "items": response.data or [],
+        "page": page,
+        "page_size": page_size,
+        "total_items": total_items,
+        "total_pages": total_pages,
+        "has_next": page < total_pages,
+        "has_previous": page > 1,
+    }
 
 
 def get_candidate_by_id(candidate_id: str) -> dict[str, Any] | None:

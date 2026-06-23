@@ -59,3 +59,13 @@ class CandidateProfileUpdate(BaseModel):
     employment_type: str = ""
     summary: str = ""
     skills: list[str] = Field(default_factory=list)
+
+
+class PaginatedRecordsResponse(BaseModel):
+    items: list[dict[str, Any]] = Field(default_factory=list)
+    page: int
+    page_size: int
+    total_items: int
+    total_pages: int
+    has_next: bool
+    has_previous: bool

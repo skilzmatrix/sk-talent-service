@@ -15,6 +15,10 @@ def get_resumes() -> list[dict[str, Any]]:
     return supabase_operations.get_resumes()
 
 
+def get_resumes_paginated(page: int, page_size: int) -> dict[str, Any]:
+    return supabase_operations.get_resumes_paginated(page, page_size)
+
+
 def save_job_description(record: dict[str, Any]) -> dict[str, Any]:
     return supabase_operations.save_job_description(record)
 
@@ -69,6 +73,14 @@ def update_candidate(candidate_id: str, record: dict[str, Any]) -> dict[str, Any
 
 def get_candidates() -> list[dict[str, Any]]:
     return supabase_operations.get_candidates()
+
+
+def get_candidates_paginated(
+    page: int,
+    page_size: int,
+    query: str | None = None,
+) -> dict[str, Any]:
+    return supabase_operations.get_candidates_paginated(page, page_size, query)
 
 
 def get_candidate_by_id(candidate_id: str) -> dict[str, Any] | None:
