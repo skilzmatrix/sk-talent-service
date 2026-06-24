@@ -3,9 +3,38 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import Any
 
 from supabase import create_client, Client
+
+
+CANDIDATE_GLOBAL_SEARCH_FIELDS = (
+    "full_name",
+    "job_role",
+    "summary",
+    "email",
+    "location",
+    "domain_industry",
+    "work_authorization",
+    "preferred_location",
+    "expected_salary",
+    "employment_type",
+    "linkedin_profile",
+    "open_to_relocation",
+)
+
+CANDIDATE_TEXT_FILTER_FIELDS = (
+    "work_authorization",
+    "location",
+    "linkedin_profile",
+    "domain_industry",
+    "preferred_location",
+    "open_to_relocation",
+    "expected_salary",
+    "employment_type",
+    "summary",
+)
 
 
 def _client() -> Client:
@@ -306,27 +335,106 @@ def get_candidates() -> list[dict[str, Any]]:
     return response.data or []
 
 
-def get_candidates_paginated(page: int, page_size: int, query: str | None = None) -> dict[str, Any]:
+def _sanitize_filter_text(value: str) -> str:
+    return value.replace("%", "").replace(",", " ").strip()
+
+
+def _normalize_linkedin_filter(value: str) -> str:
+    normalized = value.strip().lower()
+    normalized = re.sub(r"^https?://", "", normalized)
+    normalized = re.sub(r"^www\.", "", normalized)
+    return normalized.rstrip("/")
+
+
+def _build_ilike_pattern(value: str) -> str:
+    return f"*{value}*"
+
+
+def _normalize_skill_filters(filters: dict[str, Any] | None) -> list[str]:
+    if not filters:
+        return []
+    raw_skills = filters.get("skills")
+    if not isinstance(raw_skills, list):
+        return []
+    return [skill.strip().lower() for skill in raw_skills if skill and skill.strip()]
+
+
+def _candidate_matches_skills(candidate: dict[str, Any], skills: list[str]) -> bool:
+    if not skills:
+        return True
+    candidate_skills = candidate.get("skills")
+    if not isinstance(candidate_skills, list):
+        return False
+
+    normalized_candidate_skills = [
+        str(skill).strip().lower() for skill in candidate_skills if str(skill).strip()
+    ]
+    if not normalized_candidate_skills:
+        return False
+
+    for search_skill in skills:
+        if any(search_skill in candidate_skill for candidate_skill in normalized_candidate_skills):
+            return True
+    return False
+
+
+def _apply_candidate_filters(db_query: Any, filters: dict[str, Any] | None) -> Any:
+    if not filters:
+        return db_query
+
+    for field in CANDIDATE_TEXT_FILTER_FIELDS:
+        raw_value = filters.get(field)
+        if not isinstance(raw_value, str):
+            continue
+        safe_value = _sanitize_filter_text(raw_value)
+        if field == "linkedin_profile" and safe_value:
+            safe_value = _normalize_linkedin_filter(safe_value)
+        if safe_value:
+            db_query = db_query.ilike(field, _build_ilike_pattern(safe_value))
+
+    return db_query
+
+
+def get_candidates_paginated(
+    page: int,
+    page_size: int,
+    query: str | None = None,
+    filters: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     client = _client()
     start = (page - 1) * page_size
     end = start + page_size - 1
+    skill_filters = _normalize_skill_filters(filters)
     db_query = client.table("candidates").select("*", count="exact")
     term = (query or "").strip()
     if term:
-        safe_term = term.replace("%", "").replace(",", " ")
-        pattern = f"%{safe_term}%"
-        db_query = db_query.or_(
-            ",".join(
-                [
-                    f"full_name.ilike.{pattern}",
-                    f"job_role.ilike.{pattern}",
-                    f"summary.ilike.{pattern}",
-                    f"email.ilike.{pattern}",
-                    f"location.ilike.{pattern}",
-                    f"domain_industry.ilike.{pattern}",
-                ]
+        safe_term = _sanitize_filter_text(term)
+        if safe_term:
+            pattern = _build_ilike_pattern(safe_term)
+            db_query = db_query.or_(
+                ",".join(
+                    [f"{field}.ilike.{pattern}" for field in CANDIDATE_GLOBAL_SEARCH_FIELDS]
+                )
             )
-        )
+
+    db_query = _apply_candidate_filters(db_query, filters)
+
+    if skill_filters:
+        response = db_query.order("created_at", desc=True).execute()
+        filtered_items = [
+            item for item in (response.data or []) if _candidate_matches_skills(item, skill_filters)
+        ]
+        total_items = len(filtered_items)
+        total_pages = (total_items + page_size - 1) // page_size if total_items else 0
+        return {
+            "items": filtered_items[start : start + page_size],
+            "page": page,
+            "page_size": page_size,
+            "total_items": total_items,
+            "total_pages": total_pages,
+            "has_next": page < total_pages,
+            "has_previous": page > 1,
+        }
 
     response = db_query.order("created_at", desc=True).range(start, end).execute()
     total_items = int(response.count or 0)

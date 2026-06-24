@@ -38,6 +38,56 @@ router = APIRouter()
 ALLOWED_RESUME_EXTENSIONS = {"pdf", "docx"}
 
 
+def _normalize_candidate_filter(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _normalize_candidate_skills(skills: list[str] | None) -> list[str]:
+    if not skills:
+        return []
+    normalized_skills: list[str] = []
+    for item in skills:
+        for skill in item.split(","):
+            normalized = skill.strip()
+            if normalized:
+                normalized_skills.append(normalized)
+    return normalized_skills
+
+
+def _build_candidate_filters(
+    work_authorization: str | None = None,
+    location: str | None = None,
+    linkedin_profile: str | None = None,
+    domain_industry: str | None = None,
+    preferred_location: str | None = None,
+    open_to_relocation: str | None = None,
+    expected_salary: str | None = None,
+    employment_type: str | None = None,
+    summary: str | None = None,
+    skills: list[str] | None = None,
+) -> dict[str, Any]:
+    filters = {
+        "work_authorization": _normalize_candidate_filter(work_authorization),
+        "location": _normalize_candidate_filter(location),
+        "linkedin_profile": _normalize_candidate_filter(linkedin_profile),
+        "domain_industry": _normalize_candidate_filter(domain_industry),
+        "preferred_location": _normalize_candidate_filter(preferred_location),
+        "open_to_relocation": _normalize_candidate_filter(open_to_relocation),
+        "expected_salary": _normalize_candidate_filter(expected_salary),
+        "employment_type": _normalize_candidate_filter(employment_type),
+        "summary": _normalize_candidate_filter(summary),
+        "skills": _normalize_candidate_skills(skills),
+    }
+    return {
+        key: value
+        for key, value in filters.items()
+        if value not in (None, [], "")
+    }
+
+
 def _build_resume_upload_name(filename: str | None) -> str:
     ext = filename.rsplit(".", 1)[-1].lower() if filename and "." in filename else ""
     if ext not in ALLOWED_RESUME_EXTENSIONS:
@@ -171,12 +221,35 @@ async def get_candidates(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     q: str | None = Query(default=None),
+    work_authorization: str | None = Query(default=None),
+    location: str | None = Query(default=None),
+    linkedin_profile: str | None = Query(default=None),
+    domain_industry: str | None = Query(default=None),
+    preferred_location: str | None = Query(default=None),
+    open_to_relocation: str | None = Query(default=None),
+    expected_salary: str | None = Query(default=None),
+    employment_type: str | None = Query(default=None),
+    summary: str | None = Query(default=None),
+    skills: list[str] | None = Query(default=None),
 ) -> PaginatedRecordsResponse:
+    filters = _build_candidate_filters(
+        work_authorization=work_authorization,
+        location=location,
+        linkedin_profile=linkedin_profile,
+        domain_industry=domain_industry,
+        preferred_location=preferred_location,
+        open_to_relocation=open_to_relocation,
+        expected_salary=expected_salary,
+        employment_type=employment_type,
+        summary=summary,
+        skills=skills,
+    )
     data = await _run_storage_call(
         persistence_service.get_candidates_paginated,
         page,
         page_size,
         q,
+        filters,
     )
     return PaginatedRecordsResponse.model_validate(data)
 

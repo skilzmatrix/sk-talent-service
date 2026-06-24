@@ -79,8 +79,9 @@ def get_candidates_paginated(
     page: int,
     page_size: int,
     query: str | None = None,
+    filters: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return supabase_operations.get_candidates_paginated(page, page_size, query)
+    return supabase_operations.get_candidates_paginated(page, page_size, query, filters)
 
 
 def get_candidate_by_id(candidate_id: str) -> dict[str, Any] | None:

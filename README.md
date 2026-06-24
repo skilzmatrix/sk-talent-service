@@ -156,7 +156,7 @@ backend/
 | `POST` | `/api/job-descriptions` | Save a generated job description |
 | `GET` | `/api/job-descriptions` | List all saved job descriptions |
 | `POST` | `/api/candidates` | Save a candidate profile |
-| `GET` | `/api/candidates` | List paginated candidates (`page`, `page_size`) |
+| `GET` | `/api/candidates` | List paginated candidates (`page`, `page_size`, `q`, `work_authorization`, `location`, `linkedin_profile`, `domain_industry`, `preferred_location`, `open_to_relocation`, `expected_salary`, `employment_type`, `summary`, `skills`) |
 
 Supabase endpoints return `503` if the Supabase environment variables are not configured.
 
@@ -173,6 +173,8 @@ Supabase endpoints return `503` if the Supabase environment variables are not co
    "has_previous": false
 }
 ```
+
+Candidate filters on `GET /api/candidates` are additive. `skills` can be supplied either as repeated query params such as `?skills=Python&skills=SQL` or as a comma-separated value such as `?skills=Python,SQL`.
 
 ### Interactive Docs
 
