@@ -10,6 +10,8 @@ class CandidateFiltersRouteTests(unittest.IsolatedAsyncioTestCase):
         filters = records._build_candidate_filters(
             work_authorization="  USC  ",
             location="   ",
+            city=" Austin ",
+            state=" TX ",
             preferred_location="New York",
             skills=["Python, FastAPI", "  SQL  ", ""],
         )
@@ -18,6 +20,8 @@ class CandidateFiltersRouteTests(unittest.IsolatedAsyncioTestCase):
             filters,
             {
                 "work_authorization": "USC",
+                "city": "Austin",
+                "state": "TX",
                 "preferred_location": "New York",
                 "skills": ["Python", "FastAPI", "SQL"],
             },
@@ -46,6 +50,8 @@ class CandidateFiltersRouteTests(unittest.IsolatedAsyncioTestCase):
                 q="backend",
                 work_authorization="H1B",
                 location="Austin",
+                city="Austin",
+                state="TX",
                 linkedin_profile="linkedin.com/in/test",
                 domain_industry="Fintech",
                 preferred_location="Remote",
@@ -65,6 +71,8 @@ class CandidateFiltersRouteTests(unittest.IsolatedAsyncioTestCase):
                 {
                     "work_authorization": "H1B",
                     "location": "Austin",
+                    "city": "Austin",
+                    "state": "TX",
                     "linkedin_profile": "linkedin.com/in/test",
                     "domain_industry": "Fintech",
                     "preferred_location": "Remote",
@@ -105,6 +113,24 @@ class CandidateSkillsFilterTests(unittest.TestCase):
         self.assertTrue(supabase_operations._candidate_matches_skills(candidate, ["fast"]))
         self.assertTrue(supabase_operations._candidate_matches_skills(candidate, ["analysis"]))
         self.assertFalse(supabase_operations._candidate_matches_skills(candidate, ["java"]))
+
+    def test_normalize_location_fields_infers_city_and_state(self) -> None:
+        location, city, state = supabase_operations._normalize_location_fields(
+            {"location": "Austin, TX"}
+        )
+
+        self.assertEqual(location, "Austin, TX")
+        self.assertEqual(city, "Austin")
+        self.assertEqual(state, "TX")
+
+    def test_normalize_location_fields_builds_location_from_city_state(self) -> None:
+        location, city, state = supabase_operations._normalize_location_fields(
+            {"city": "Dallas", "state": "TX"}
+        )
+
+        self.assertEqual(location, "Dallas, TX")
+        self.assertEqual(city, "Dallas")
+        self.assertEqual(state, "TX")
 
 
 if __name__ == "__main__":

@@ -15,6 +15,8 @@ CANDIDATE_GLOBAL_SEARCH_FIELDS = (
     "summary",
     "email",
     "location",
+    "city",
+    "state",
     "domain_industry",
     "work_authorization",
     "preferred_location",
@@ -27,6 +29,8 @@ CANDIDATE_GLOBAL_SEARCH_FIELDS = (
 CANDIDATE_TEXT_FILTER_FIELDS = (
     "work_authorization",
     "location",
+    "city",
+    "state",
     "linkedin_profile",
     "domain_industry",
     "preferred_location",
@@ -264,8 +268,40 @@ def get_signed_resume_url(path: str, expires_in: int = 3600) -> str:
     return result.get("signedURL", "")
 
 
+def _split_location_parts(location: str) -> tuple[str, str]:
+    raw = location.strip()
+    if not raw:
+        return "", ""
+
+    parts = [part.strip() for part in raw.split(",") if part.strip()]
+    if len(parts) >= 2:
+        return parts[0], parts[-1]
+    return raw, ""
+
+
+def _normalize_location_fields(record: dict[str, Any]) -> tuple[str, str, str]:
+    location = str(record.get("location", "") or "").strip()
+    city = str(record.get("city", "") or "").strip()
+    state = str(record.get("state", "") or "").strip()
+
+    if location and (not city or not state):
+        inferred_city, inferred_state = _split_location_parts(location)
+        if not city:
+            city = inferred_city
+        if not state:
+            state = inferred_state
+
+    if not location and city and state:
+        location = f"{city}, {state}"
+    elif not location and city:
+        location = city
+
+    return location, city, state
+
+
 def save_candidate(record: dict[str, Any]) -> dict[str, Any]:
     client = _client()
+    location, city, state = _normalize_location_fields(record)
     response = (
         client.table("candidates")
         .insert({
@@ -273,7 +309,9 @@ def save_candidate(record: dict[str, Any]) -> dict[str, Any]:
             "job_role": record.get("job_role", ""),
             "email": record.get("email", ""),
             "phone": record.get("phone", ""),
-            "location": record.get("location", ""),
+            "location": location,
+            "city": city,
+            "state": state,
             "linkedin_profile": record.get("linkedin_profile", ""),
             "domain_industry": record.get("domain_industry", ""),
             "work_authorization": record.get("work_authorization", ""),
@@ -297,6 +335,7 @@ def save_candidate(record: dict[str, Any]) -> dict[str, Any]:
 
 def update_candidate(candidate_id: str, record: dict[str, Any]) -> dict[str, Any]:
     client = _client()
+    location, city, state = _normalize_location_fields(record)
     response = (
         client.table("candidates")
         .update({
@@ -304,7 +343,9 @@ def update_candidate(candidate_id: str, record: dict[str, Any]) -> dict[str, Any
             "job_role": record.get("job_role", ""),
             "email": record.get("email", ""),
             "phone": record.get("phone", ""),
-            "location": record.get("location", ""),
+            "location": location,
+            "city": city,
+            "state": state,
             "linkedin_profile": record.get("linkedin_profile", ""),
             "domain_industry": record.get("domain_industry", ""),
             "work_authorization": record.get("work_authorization", ""),

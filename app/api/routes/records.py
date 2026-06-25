@@ -60,6 +60,8 @@ def _normalize_candidate_skills(skills: list[str] | None) -> list[str]:
 def _build_candidate_filters(
     work_authorization: str | None = None,
     location: str | None = None,
+    city: str | None = None,
+    state: str | None = None,
     linkedin_profile: str | None = None,
     domain_industry: str | None = None,
     preferred_location: str | None = None,
@@ -71,6 +73,8 @@ def _build_candidate_filters(
     filters = {
         "work_authorization": _normalize_candidate_filter(work_authorization),
         "location": _normalize_candidate_filter(location),
+        "city": _normalize_candidate_filter(city),
+        "state": _normalize_candidate_filter(state),
         "linkedin_profile": _normalize_candidate_filter(linkedin_profile),
         "domain_industry": _normalize_candidate_filter(domain_industry),
         "preferred_location": _normalize_candidate_filter(preferred_location),
@@ -221,6 +225,8 @@ async def get_candidates(
     q: str | None = Query(default=None),
     work_authorization: str | None = Query(default=None),
     location: str | None = Query(default=None),
+    city: str | None = Query(default=None),
+    state: str | None = Query(default=None),
     linkedin_profile: str | None = Query(default=None),
     domain_industry: str | None = Query(default=None),
     preferred_location: str | None = Query(default=None),
@@ -232,6 +238,8 @@ async def get_candidates(
     filters = _build_candidate_filters(
         work_authorization=work_authorization,
         location=location,
+        city=city,
+        state=state,
         linkedin_profile=linkedin_profile,
         domain_industry=domain_industry,
         preferred_location=preferred_location,
