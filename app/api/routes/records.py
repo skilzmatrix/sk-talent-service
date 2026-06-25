@@ -66,7 +66,6 @@ def _build_candidate_filters(
     open_to_relocation: str | None = None,
     expected_salary: str | None = None,
     employment_type: str | None = None,
-    summary: str | None = None,
     skills: list[str] | None = None,
 ) -> dict[str, Any]:
     filters = {
@@ -78,7 +77,6 @@ def _build_candidate_filters(
         "open_to_relocation": _normalize_candidate_filter(open_to_relocation),
         "expected_salary": _normalize_candidate_filter(expected_salary),
         "employment_type": _normalize_candidate_filter(employment_type),
-        "summary": _normalize_candidate_filter(summary),
         "skills": _normalize_candidate_skills(skills),
     }
     return {
@@ -229,7 +227,6 @@ async def get_candidates(
     open_to_relocation: str | None = Query(default=None),
     expected_salary: str | None = Query(default=None),
     employment_type: str | None = Query(default=None),
-    summary: str | None = Query(default=None),
     skills: list[str] | None = Query(default=None),
 ) -> PaginatedRecordsResponse:
     filters = _build_candidate_filters(
@@ -241,7 +238,6 @@ async def get_candidates(
         open_to_relocation=open_to_relocation,
         expected_salary=expected_salary,
         employment_type=employment_type,
-        summary=summary,
         skills=skills,
     )
     data = await _run_storage_call(

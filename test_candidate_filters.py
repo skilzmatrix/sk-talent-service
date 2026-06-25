@@ -52,7 +52,6 @@ class CandidateFiltersRouteTests(unittest.IsolatedAsyncioTestCase):
                 open_to_relocation="Yes",
                 expected_salary="150000",
                 employment_type="Full-time",
-                summary="platform engineer",
                 skills=["Python, FastAPI", "SQL"],
             )
 
@@ -72,7 +71,6 @@ class CandidateFiltersRouteTests(unittest.IsolatedAsyncioTestCase):
                     "open_to_relocation": "Yes",
                     "expected_salary": "150000",
                     "employment_type": "Full-time",
-                    "summary": "platform engineer",
                     "skills": ["Python", "FastAPI", "SQL"],
                 },
             ),

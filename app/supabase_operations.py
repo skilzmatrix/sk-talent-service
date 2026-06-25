@@ -33,7 +33,6 @@ CANDIDATE_TEXT_FILTER_FIELDS = (
     "open_to_relocation",
     "expected_salary",
     "employment_type",
-    "summary",
 )
 
 
