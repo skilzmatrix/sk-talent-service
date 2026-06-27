@@ -3,9 +3,41 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import Any
 
 from supabase import create_client, Client
+
+
+CANDIDATE_GLOBAL_SEARCH_FIELDS = (
+    "full_name",
+    "job_role",
+    "summary",
+    "email",
+    "location",
+    "city",
+    "state",
+    "domain_industry",
+    "work_authorization",
+    "preferred_location",
+    "expected_salary",
+    "employment_type",
+    "linkedin_profile",
+    "open_to_relocation",
+)
+
+CANDIDATE_TEXT_FILTER_FIELDS = (
+    "work_authorization",
+    "location",
+    "city",
+    "state",
+    "linkedin_profile",
+    "domain_industry",
+    "preferred_location",
+    "open_to_relocation",
+    "expected_salary",
+    "employment_type",
+)
 
 
 def _client() -> Client:
@@ -47,6 +79,30 @@ def get_resumes() -> list[dict[str, Any]]:
         .execute()
     )
     return response.data or []
+
+
+def get_resumes_paginated(page: int, page_size: int) -> dict[str, Any]:
+    client = _client()
+    start = (page - 1) * page_size
+    end = start + page_size - 1
+    response = (
+        client.table("resumes")
+        .select("*", count="exact")
+        .order("created_at", desc=True)
+        .range(start, end)
+        .execute()
+    )
+    total_items = int(response.count or 0)
+    total_pages = (total_items + page_size - 1) // page_size if total_items else 0
+    return {
+        "items": response.data or [],
+        "page": page,
+        "page_size": page_size,
+        "total_items": total_items,
+        "total_pages": total_pages,
+        "has_next": page < total_pages,
+        "has_previous": page > 1,
+    }
 
 
 def save_job_description(record: dict[str, Any]) -> dict[str, Any]:
@@ -212,8 +268,40 @@ def get_signed_resume_url(path: str, expires_in: int = 3600) -> str:
     return result.get("signedURL", "")
 
 
+def _split_location_parts(location: str) -> tuple[str, str]:
+    raw = location.strip()
+    if not raw:
+        return "", ""
+
+    parts = [part.strip() for part in raw.split(",") if part.strip()]
+    if len(parts) >= 2:
+        return parts[0], parts[-1]
+    return raw, ""
+
+
+def _normalize_location_fields(record: dict[str, Any]) -> tuple[str, str, str]:
+    location = str(record.get("location", "") or "").strip()
+    city = str(record.get("city", "") or "").strip()
+    state = str(record.get("state", "") or "").strip()
+
+    if location and (not city or not state):
+        inferred_city, inferred_state = _split_location_parts(location)
+        if not city:
+            city = inferred_city
+        if not state:
+            state = inferred_state
+
+    if not location and city and state:
+        location = f"{city}, {state}"
+    elif not location and city:
+        location = city
+
+    return location, city, state
+
+
 def save_candidate(record: dict[str, Any]) -> dict[str, Any]:
     client = _client()
+    location, city, state = _normalize_location_fields(record)
     response = (
         client.table("candidates")
         .insert({
@@ -221,7 +309,9 @@ def save_candidate(record: dict[str, Any]) -> dict[str, Any]:
             "job_role": record.get("job_role", ""),
             "email": record.get("email", ""),
             "phone": record.get("phone", ""),
-            "location": record.get("location", ""),
+            "location": location,
+            "city": city,
+            "state": state,
             "linkedin_profile": record.get("linkedin_profile", ""),
             "domain_industry": record.get("domain_industry", ""),
             "work_authorization": record.get("work_authorization", ""),
@@ -245,6 +335,7 @@ def save_candidate(record: dict[str, Any]) -> dict[str, Any]:
 
 def update_candidate(candidate_id: str, record: dict[str, Any]) -> dict[str, Any]:
     client = _client()
+    location, city, state = _normalize_location_fields(record)
     response = (
         client.table("candidates")
         .update({
@@ -252,7 +343,9 @@ def update_candidate(candidate_id: str, record: dict[str, Any]) -> dict[str, Any
             "job_role": record.get("job_role", ""),
             "email": record.get("email", ""),
             "phone": record.get("phone", ""),
-            "location": record.get("location", ""),
+            "location": location,
+            "city": city,
+            "state": state,
             "linkedin_profile": record.get("linkedin_profile", ""),
             "domain_industry": record.get("domain_industry", ""),
             "work_authorization": record.get("work_authorization", ""),
@@ -280,6 +373,121 @@ def get_candidates() -> list[dict[str, Any]]:
         .execute()
     )
     return response.data or []
+
+
+def _sanitize_filter_text(value: str) -> str:
+    return value.replace("%", "").replace(",", " ").strip()
+
+
+def _normalize_linkedin_filter(value: str) -> str:
+    normalized = value.strip().lower()
+    normalized = re.sub(r"^https?://", "", normalized)
+    normalized = re.sub(r"^www\.", "", normalized)
+    return normalized.rstrip("/")
+
+
+def _build_ilike_pattern(value: str) -> str:
+    return f"*{value}*"
+
+
+def _normalize_skill_filters(filters: dict[str, Any] | None) -> list[str]:
+    if not filters:
+        return []
+    raw_skills = filters.get("skills")
+    if not isinstance(raw_skills, list):
+        return []
+    return [skill.strip().lower() for skill in raw_skills if skill and skill.strip()]
+
+
+def _candidate_matches_skills(candidate: dict[str, Any], skills: list[str]) -> bool:
+    if not skills:
+        return True
+    candidate_skills = candidate.get("skills")
+    if not isinstance(candidate_skills, list):
+        return False
+
+    normalized_candidate_skills = [
+        str(skill).strip().lower() for skill in candidate_skills if str(skill).strip()
+    ]
+    if not normalized_candidate_skills:
+        return False
+
+    for search_skill in skills:
+        if any(search_skill in candidate_skill for candidate_skill in normalized_candidate_skills):
+            return True
+    return False
+
+
+def _apply_candidate_filters(db_query: Any, filters: dict[str, Any] | None) -> Any:
+    if not filters:
+        return db_query
+
+    for field in CANDIDATE_TEXT_FILTER_FIELDS:
+        raw_value = filters.get(field)
+        if not isinstance(raw_value, str):
+            continue
+        safe_value = _sanitize_filter_text(raw_value)
+        if field == "linkedin_profile" and safe_value:
+            safe_value = _normalize_linkedin_filter(safe_value)
+        if safe_value:
+            db_query = db_query.ilike(field, _build_ilike_pattern(safe_value))
+
+    return db_query
+
+
+def get_candidates_paginated(
+    page: int,
+    page_size: int,
+    query: str | None = None,
+    filters: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    client = _client()
+    start = (page - 1) * page_size
+    end = start + page_size - 1
+    skill_filters = _normalize_skill_filters(filters)
+    db_query = client.table("candidates").select("*", count="exact")
+    term = (query or "").strip()
+    if term:
+        safe_term = _sanitize_filter_text(term)
+        if safe_term:
+            pattern = _build_ilike_pattern(safe_term)
+            db_query = db_query.or_(
+                ",".join(
+                    [f"{field}.ilike.{pattern}" for field in CANDIDATE_GLOBAL_SEARCH_FIELDS]
+                )
+            )
+
+    db_query = _apply_candidate_filters(db_query, filters)
+
+    if skill_filters:
+        response = db_query.order("created_at", desc=True).execute()
+        filtered_items = [
+            item for item in (response.data or []) if _candidate_matches_skills(item, skill_filters)
+        ]
+        total_items = len(filtered_items)
+        total_pages = (total_items + page_size - 1) // page_size if total_items else 0
+        return {
+            "items": filtered_items[start : start + page_size],
+            "page": page,
+            "page_size": page_size,
+            "total_items": total_items,
+            "total_pages": total_pages,
+            "has_next": page < total_pages,
+            "has_previous": page > 1,
+        }
+
+    response = db_query.order("created_at", desc=True).range(start, end).execute()
+    total_items = int(response.count or 0)
+    total_pages = (total_items + page_size - 1) // page_size if total_items else 0
+    return {
+        "items": response.data or [],
+        "page": page,
+        "page_size": page_size,
+        "total_items": total_items,
+        "total_pages": total_pages,
+        "has_next": page < total_pages,
+        "has_previous": page > 1,
+    }
 
 
 def get_candidate_by_id(candidate_id: str) -> dict[str, Any] | None:

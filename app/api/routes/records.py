@@ -14,7 +14,13 @@ from google import genai
 from pydantic import BaseModel, Field
 
 from app.core.config import GEMINI_API_KEY
-from app.schemas.records import CandidateProfileUpdate, CandidateRecord, JobDescriptionRecord, ResumeRecord
+from app.schemas.records import (
+    CandidateProfileUpdate,
+    CandidateRecord,
+    JobDescriptionRecord,
+    PaginatedRecordsResponse,
+    ResumeRecord,
+)
 from app.services import persistence_service, pinecone_service, talent_search_service
 
 
@@ -30,6 +36,58 @@ class TalentSearchRequest(BaseModel):
 router = APIRouter()
 
 ALLOWED_RESUME_EXTENSIONS = {"pdf", "docx"}
+
+
+def _normalize_candidate_filter(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _normalize_candidate_skills(skills: list[str] | None) -> list[str]:
+    if not skills:
+        return []
+    normalized_skills: list[str] = []
+    for item in skills:
+        for skill in item.split(","):
+            normalized = skill.strip()
+            if normalized:
+                normalized_skills.append(normalized)
+    return normalized_skills
+
+
+def _build_candidate_filters(
+    work_authorization: str | None = None,
+    location: str | None = None,
+    city: str | None = None,
+    state: str | None = None,
+    linkedin_profile: str | None = None,
+    domain_industry: str | None = None,
+    preferred_location: str | None = None,
+    open_to_relocation: str | None = None,
+    expected_salary: str | None = None,
+    employment_type: str | None = None,
+    skills: list[str] | None = None,
+) -> dict[str, Any]:
+    filters = {
+        "work_authorization": _normalize_candidate_filter(work_authorization),
+        "location": _normalize_candidate_filter(location),
+        "city": _normalize_candidate_filter(city),
+        "state": _normalize_candidate_filter(state),
+        "linkedin_profile": _normalize_candidate_filter(linkedin_profile),
+        "domain_industry": _normalize_candidate_filter(domain_industry),
+        "preferred_location": _normalize_candidate_filter(preferred_location),
+        "open_to_relocation": _normalize_candidate_filter(open_to_relocation),
+        "expected_salary": _normalize_candidate_filter(expected_salary),
+        "employment_type": _normalize_candidate_filter(employment_type),
+        "skills": _normalize_candidate_skills(skills),
+    }
+    return {
+        key: value
+        for key, value in filters.items()
+        if value not in (None, [], "")
+    }
 
 
 def _build_resume_upload_name(filename: str | None) -> str:
@@ -81,8 +139,16 @@ async def save_resume(body: ResumeRecord) -> dict[str, Any]:
 
 
 @router.get("/api/resumes")
-async def get_resumes() -> list[dict[str, Any]]:
-    return await _run_storage_call(persistence_service.get_resumes)
+async def get_resumes(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+) -> PaginatedRecordsResponse:
+    data = await _run_storage_call(
+        persistence_service.get_resumes_paginated,
+        page,
+        page_size,
+    )
+    return PaginatedRecordsResponse.model_validate(data)
 
 
 @router.post("/api/job-descriptions", status_code=201)
@@ -153,8 +219,43 @@ async def update_candidate(candidate_id: str, body: CandidateProfileUpdate) -> d
 
 
 @router.get("/api/candidates")
-async def get_candidates() -> list[dict[str, Any]]:
-    return await _run_storage_call(persistence_service.get_candidates)
+async def get_candidates(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    q: str | None = Query(default=None),
+    work_authorization: str | None = Query(default=None),
+    location: str | None = Query(default=None),
+    city: str | None = Query(default=None),
+    state: str | None = Query(default=None),
+    linkedin_profile: str | None = Query(default=None),
+    domain_industry: str | None = Query(default=None),
+    preferred_location: str | None = Query(default=None),
+    open_to_relocation: str | None = Query(default=None),
+    expected_salary: str | None = Query(default=None),
+    employment_type: str | None = Query(default=None),
+    skills: list[str] | None = Query(default=None),
+) -> PaginatedRecordsResponse:
+    filters = _build_candidate_filters(
+        work_authorization=work_authorization,
+        location=location,
+        city=city,
+        state=state,
+        linkedin_profile=linkedin_profile,
+        domain_industry=domain_industry,
+        preferred_location=preferred_location,
+        open_to_relocation=open_to_relocation,
+        expected_salary=expected_salary,
+        employment_type=employment_type,
+        skills=skills,
+    )
+    data = await _run_storage_call(
+        persistence_service.get_candidates_paginated,
+        page,
+        page_size,
+        q,
+        filters,
+    )
+    return PaginatedRecordsResponse.model_validate(data)
 
 
 @router.delete("/api/candidates/{candidate_id}", status_code=200)

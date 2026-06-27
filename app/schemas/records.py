@@ -29,6 +29,8 @@ class CandidateRecord(BaseModel):
     email: str = ""
     phone: str = ""
     location: str = ""
+    city: str = ""
+    state: str = ""
     linkedin_profile: str = ""
     domain_industry: str = ""
     work_authorization: str = ""
@@ -50,6 +52,8 @@ class CandidateProfileUpdate(BaseModel):
     email: str = ""
     phone: str = ""
     location: str = ""
+    city: str = ""
+    state: str = ""
     linkedin_profile: str = ""
     domain_industry: str = ""
     work_authorization: str = ""
@@ -59,3 +63,13 @@ class CandidateProfileUpdate(BaseModel):
     employment_type: str = ""
     summary: str = ""
     skills: list[str] = Field(default_factory=list)
+
+
+class PaginatedRecordsResponse(BaseModel):
+    items: list[dict[str, Any]] = Field(default_factory=list)
+    page: int
+    page_size: int
+    total_items: int
+    total_pages: int
+    has_next: bool
+    has_previous: bool

@@ -20,6 +20,8 @@ SchemaCandidateProfile: dict[str, Any] = {
         "email": {"type": "STRING", "description": "Email address. Empty string if absent."},
         "phone": {"type": "STRING", "description": "Phone number. Empty string if absent."},
         "location": {"type": "STRING", "description": "City, State or City, Country. Empty string if absent."},
+        "city": {"type": "STRING", "description": "City name parsed from location. Empty string if absent."},
+        "state": {"type": "STRING", "description": "State or region parsed from location. Empty string if absent."},
         "linkedin_profile": {"type": "STRING", "description": "Full LinkedIn URL. Empty string if absent."},
         "domain_industry": {"type": "STRING", "description": "Primary domain or industry (e.g. 'Data Engineering, IT Consulting')."},
         "work_authorization": {
@@ -305,6 +307,7 @@ Extract ALL of the following:
 - All certifications, licenses, or credentials with name, issuer, and date if available
 
 For any text field that is not present in the resume, use an empty string "".
+Extract city and state separately when location is available.
 For open_to_relocation, choose from: Yes, No, or "" if not mentioned.
 For employment_type, choose from: Full-time, Part-time, Contract, Freelance, or "" if not mentioned.
 For work_authorization, choose from: Initial OPT, STEM OPT, H1-B, Green Card, US Citizen, or "" if not mentioned.
