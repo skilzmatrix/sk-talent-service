@@ -298,6 +298,12 @@ def invoke(
         resume_text = payload.get("resumeText", "")
         prompt = f"""You are an expert HR data extractor. Parse the following resume and extract the complete candidate profile into the required JSON schema.
 
+IMPORTANT READING RULES:
+- Read the full resume from top to bottom, including anything ABOVE the Summary section.
+- The text above Summary usually contains the candidate's name, email, phone, location, and LinkedIn.
+- Do not skip or de-prioritize header/contact text just because the main summary appears later.
+- If the resume starts with a merged header line, still extract the name, email, phone, and location from it.
+
 Extract ALL of the following:
 - Contact and personal information (name, email, phone, location, LinkedIn, etc.)
 - Professional summary (2-4 sentences)
@@ -325,6 +331,12 @@ Resume:
         if job_description:
             prompt = f"""You are an expert technical recruiter. Analyze the following resume against the provided job description.
 
+IMPORTANT READING RULES:
+- Read the full resume from top to bottom, including anything ABOVE the Summary section.
+- The text above Summary usually contains the candidate's name, email, phone, location, and LinkedIn.
+- Do not skip or de-prioritize header/contact text just because the main summary appears later.
+- If the resume starts with a merged header line, still extract the name, email, phone, and location from it.
+
       Extract all key information in JSON format and also populate these JD-match fields:
       - fitScore: an integer 0–100 representing overall candidate fit for the role
       - fitReasoning: 2-3 sentences explaining why you gave that score
@@ -342,6 +354,12 @@ Resume:
       ---"""
         else:
             prompt = f"""Analyze the following resume text and extract the key information in JSON format.
+        IMPORTANT READING RULES:
+        - Read the full resume from top to bottom, including anything ABOVE the Summary section.
+        - The text above Summary usually contains the candidate's name, email, phone, location, and LinkedIn.
+        - Do not skip or de-prioritize header/contact text just because the main summary appears later.
+        - If the resume starts with a merged header line, still extract the name, email, phone, and location from it.
+
       Resume:
       ---
       {resume_text}
