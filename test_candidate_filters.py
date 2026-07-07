@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from app.api.routes import records
+from app import pinecone_operations
 from app import supabase_operations
 
 
@@ -131,6 +132,93 @@ class CandidateSkillsFilterTests(unittest.TestCase):
         self.assertEqual(location, "Dallas, TX")
         self.assertEqual(city, "Dallas")
         self.assertEqual(state, "TX")
+
+
+class TalentSearchFilterTests(unittest.IsolatedAsyncioTestCase):
+    async def test_talent_search_passes_metadata_filters_to_service(self) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_run_talent_search(
+            query: str,
+            top_k: int,
+            keyword_weight: float | None,
+            gemini_client,
+            metadata_filters: dict[str, object] | None,
+            *,
+            use_llm_rerank: bool = True,
+        ):
+            captured["query"] = query
+            captured["top_k"] = top_k
+            captured["keyword_weight"] = keyword_weight
+            captured["metadata_filters"] = metadata_filters
+            captured["use_llm_rerank"] = use_llm_rerank
+            return [], {"semantic": 0.56, "keyword": 0.44}, {"llm_rerank": "disabled"}
+
+        with patch(
+            "app.api.routes.records.talent_search_service.run_talent_search",
+            new=fake_run_talent_search,
+        ):
+            response = await records.talent_search(
+                records.TalentSearchRequest(
+                    query="Python backend",
+                    top_k=3,
+                    use_llm_rerank=False,
+                    location="Austin",
+                    work_authorization="H1B",
+                    city="Austin",
+                    state="TX",
+                    skills=["Python", "FastAPI"],
+                )
+            )
+
+        self.assertEqual(captured["query"], "Python backend")
+        self.assertEqual(captured["top_k"], 3)
+        self.assertEqual(captured["use_llm_rerank"], False)
+        self.assertEqual(
+            captured["metadata_filters"],
+            {
+                "work_authorization": "H1B",
+                "location": "Austin",
+                "city": "Austin",
+                "state": "TX",
+            },
+        )
+        self.assertEqual(response["llm_rerank"], "disabled")
+
+    def test_build_pinecone_metadata_filter_uses_normalized_ci_fields(self) -> None:
+        out = pinecone_operations._build_pinecone_metadata_filter(
+            {
+                "location": "  Austin, TX  ",
+                "work_authorization": "H1-B",
+                "full_name": "  Jane Doe  ",
+                "job_role": "Backend Engineer",
+                "skills": "Python",
+            }
+        )
+
+        self.assertEqual(
+            out,
+            {
+                "$and": [
+                    {"location_ci": {"$eq": "austin, tx"}},
+                    {"work_authorization_ci": {"$eq": "h1-b"}},
+                    {
+                        "$or": [
+                            {"full_name_ci": {"$eq": "jane doe"}},
+                            {"full_name": {"$eq": "Jane Doe"}},
+                            {"full_name": {"$eq": "jane doe"}},
+                        ]
+                    },
+                    {
+                        "$or": [
+                            {"job_role_ci": {"$eq": "backend engineer"}},
+                            {"job_role": {"$eq": "Backend Engineer"}},
+                            {"job_role": {"$eq": "backend engineer"}},
+                        ]
+                    },
+                ]
+            },
+        )
 
 
 if __name__ == "__main__":

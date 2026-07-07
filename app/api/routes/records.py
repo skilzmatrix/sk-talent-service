@@ -32,6 +32,17 @@ class TalentSearchRequest(BaseModel):
     keyword_weight: float | None = Field(default=None, ge=0.0, le=1.0)
     # When True, Gemini reranks the vector top‑K using full DB profiles and adds reasoning.
     use_llm_rerank: bool = Field(default=True)
+    work_authorization: str | None = None
+    location: str | None = None
+    city: str | None = None
+    state: str | None = None
+    linkedin_profile: str | None = None
+    domain_industry: str | None = None
+    preferred_location: str | None = None
+    open_to_relocation: str | None = None
+    expected_salary: str | None = None
+    employment_type: str | None = None
+    skills: list[str] | None = None
 
 router = APIRouter()
 
@@ -213,9 +224,14 @@ async def save_candidate(body: CandidateRecord) -> dict[str, Any]:
 
 @router.put("/api/candidates/{candidate_id}")
 async def update_candidate(candidate_id: str, body: CandidateProfileUpdate) -> dict[str, Any]:
-    return await _run_storage_call(
+    result = await _run_storage_call(
         persistence_service.update_candidate, candidate_id, body.model_dump()
     )
+    embedded_sections = await asyncio.to_thread(
+        pinecone_service.vectorize_candidate, candidate_id, result
+    )
+    result["embedded_sections"] = embedded_sections
+    return result
 
 
 @router.get("/api/candidates")
@@ -274,6 +290,25 @@ async def delete_candidate(
 async def talent_search(body: TalentSearchRequest) -> dict[str, Any]:
     if not body.query.strip():
         raise HTTPException(status_code=400, detail="Query text is required.")
+    candidate_filters = _build_candidate_filters(
+        work_authorization=body.work_authorization,
+        location=body.location,
+        city=body.city,
+        state=body.state,
+        linkedin_profile=body.linkedin_profile,
+        domain_industry=body.domain_industry,
+        preferred_location=body.preferred_location,
+        open_to_relocation=body.open_to_relocation,
+        expected_salary=body.expected_salary,
+        employment_type=body.employment_type,
+        skills=body.skills,
+    )
+    # Skills are applied in relational search; Pinecone metadata filters support scalar fields only.
+    vector_filters = {
+        key: value
+        for key, value in candidate_filters.items()
+        if key != "skills"
+    }
     gemini_client: genai.Client | None = None
     if GEMINI_API_KEY:
         gemini_client = genai.Client(api_key=GEMINI_API_KEY)
@@ -285,6 +320,7 @@ async def talent_search(body: TalentSearchRequest) -> dict[str, Any]:
                 body.top_k,
                 body.keyword_weight,
                 gemini_client,
+                vector_filters,
                 use_llm_rerank=body.use_llm_rerank,
             )
         )
