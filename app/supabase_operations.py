@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 from supabase import create_client, Client
 
@@ -143,9 +144,34 @@ def upload_candidate_resume(file_name: str, file_bytes: bytes, content_type: str
     return path
 
 
-def _remove_storage_object(client: Client, path: str) -> None:
+def _normalize_resume_storage_path(path: str | None) -> str:
+    """Convert stored resume references to a bucket-relative storage key."""
+    raw = str(path or "").strip()
+    if not raw:
+        return ""
+
+    parsed = urlparse(raw)
+    if parsed.scheme and parsed.netloc:
+        raw = parsed.path or ""
+
+    raw = unquote(raw).split("?", 1)[0].split("#", 1)[0]
+
     marker = "/candidate_resumes/"
-    normalized = path.split(marker, 1)[1] if marker in path else path
+    if marker in raw:
+        raw = raw.split(marker, 1)[1]
+
+    raw = raw.lstrip("/")
+    bucket_prefix = "candidate_resumes/"
+    if raw.startswith(bucket_prefix):
+        raw = raw[len(bucket_prefix):]
+
+    return raw
+
+
+def _remove_storage_object(client: Client, path: str) -> None:
+    normalized = _normalize_resume_storage_path(path)
+    if not normalized:
+        return
     client.storage.from_("candidate_resumes").remove([normalized])
 
 
@@ -260,9 +286,9 @@ def delete_conversation_with_attachments(conversation_id: str) -> None:
 
 
 def get_signed_resume_url(path: str, expires_in: int = 3600) -> str:
-    marker = "/candidate_resumes/"
-    if marker in path:
-        path = path.split(marker, 1)[1]
+    path = _normalize_resume_storage_path(path)
+    if not path:
+        return ""
     client = _client()
     result = client.storage.from_("candidate_resumes").create_signed_url(path, expires_in)
     return result.get("signedURL", "")
@@ -507,11 +533,10 @@ def get_candidate_by_id(candidate_id: str) -> dict[str, Any] | None:
 def delete_candidate(candidate_id: str, resume_path: str | None = None) -> None:
     client = _client()
     if resume_path:
-        marker = "/candidate_resumes/"
-        if marker in resume_path:
-            resume_path = resume_path.split(marker, 1)[1]
+        resume_path = _normalize_resume_storage_path(resume_path)
         try:
-            client.storage.from_("candidate_resumes").remove([resume_path])
+            if resume_path:
+                client.storage.from_("candidate_resumes").remove([resume_path])
         except Exception:
             pass
     client.table("candidates").delete().eq("id", candidate_id).execute()

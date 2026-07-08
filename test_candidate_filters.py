@@ -133,6 +133,27 @@ class CandidateSkillsFilterTests(unittest.TestCase):
         self.assertEqual(city, "Dallas")
         self.assertEqual(state, "TX")
 
+    def test_normalize_resume_storage_path_from_full_public_url(self) -> None:
+        storage_key = supabase_operations._normalize_resume_storage_path(
+            "https://demo.supabase.co/storage/v1/object/public/candidate_resumes/resumes/a1b2c3.pdf"
+        )
+
+        self.assertEqual(storage_key, "resumes/a1b2c3.pdf")
+
+    def test_normalize_resume_storage_path_from_signed_url_with_query(self) -> None:
+        storage_key = supabase_operations._normalize_resume_storage_path(
+            "https://demo.supabase.co/storage/v1/object/sign/candidate_resumes/resumes/sample.docx?token=abc&download=1"
+        )
+
+        self.assertEqual(storage_key, "resumes/sample.docx")
+
+    def test_normalize_resume_storage_path_from_bucket_prefixed_path(self) -> None:
+        storage_key = supabase_operations._normalize_resume_storage_path(
+            "candidate_resumes/resumes/sample.pdf"
+        )
+
+        self.assertEqual(storage_key, "resumes/sample.pdf")
+
 
 class TalentSearchFilterTests(unittest.IsolatedAsyncioTestCase):
     async def test_talent_search_passes_metadata_filters_to_service(self) -> None:
