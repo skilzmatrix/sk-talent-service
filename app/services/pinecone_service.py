@@ -23,6 +23,7 @@ def search_candidates(
     query_text: str,
     top_k: int = 5,
     keyword_weight: float | None = None,
+    metadata_filters: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, float]]:
     """Search for top candidates; returns (results, ranking_weights) with semantic/keyword shares."""
     try:
@@ -31,6 +32,7 @@ def search_candidates(
             query_text,
             top_k=section_fetch,
             keyword_weight=keyword_weight,
+            metadata_filters=metadata_filters,
         )
         return results[:top_k], weights
     except Exception:

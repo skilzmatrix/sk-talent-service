@@ -87,6 +87,7 @@ def run_talent_search(
     top_k: int,
     keyword_weight: float | None,
     gemini_client: genai.Client | None,
+    metadata_filters: dict[str, Any] | None = None,
     *,
     use_llm_rerank: bool = True,
 ) -> tuple[list[dict[str, Any]], dict[str, float], dict[str, Any]]:
@@ -94,7 +95,12 @@ def run_talent_search(
 
     Returns ``(results, ranking_weights, meta)``.
     """
-    results, weights = pinecone_service.search_candidates(query, top_k, keyword_weight)
+    results, weights = pinecone_service.search_candidates(
+        query,
+        top_k,
+        keyword_weight,
+        metadata_filters=metadata_filters,
+    )
     meta: dict[str, Any] = {"llm_rerank": "skipped"}
 
     results = [{**r, "retrieval_rank": idx + 1} for idx, r in enumerate(results)]

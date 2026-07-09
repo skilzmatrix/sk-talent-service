@@ -51,6 +51,18 @@ _STOPWORDS = frozenset(
     """.split()
 )
 _MAX_JD_TOKENS = 120
+_VECTOR_FILTER_FIELDS = (
+    "work_authorization",
+    "location",
+    "city",
+    "state",
+    "linkedin_profile",
+    "domain_industry",
+    "preferred_location",
+    "open_to_relocation",
+    "expected_salary",
+    "employment_type",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +139,56 @@ def resolve_keyword_weight(explicit: float | None) -> tuple[float, float]:
 
 def _hybrid_score(semantic: float, lexical: float, w_sem: float, w_kw: float) -> float:
     return w_sem * semantic + w_kw * lexical
+
+
+def _normalize_filter_value(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower()
+    return normalized or None
+
+
+def _build_pinecone_metadata_filter(
+    metadata_filters: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Build Pinecone filter clauses with compatibility for legacy/non-normalized vectors."""
+    if not metadata_filters:
+        return None
+
+    clauses: list[dict[str, Any]] = []
+    for field, raw_value in metadata_filters.items():
+        if field == "candidate_id":
+            cid = str(raw_value).strip()
+            if cid:
+                clauses.append({"candidate_id": {"$eq": cid}})
+            continue
+
+        if field in {"full_name", "job_role"}:
+            normalized = _normalize_filter_value(raw_value)
+            raw_str = str(raw_value).strip()
+            if not normalized:
+                continue
+            clauses.append(
+                {
+                    "$or": [
+                        {f"{field}_ci": {"$eq": normalized}},
+                        {field: {"$eq": raw_str}},
+                        {field: {"$eq": normalized}},
+                    ]
+                }
+            )
+            continue
+
+        if field in _VECTOR_FILTER_FIELDS:
+            normalized = _normalize_filter_value(raw_value)
+            if normalized:
+                clauses.append({f"{field}_ci": {"$eq": normalized}})
+
+    if not clauses:
+        return None
+    if len(clauses) == 1:
+        return clauses[0]
+    return {"$and": clauses}
 
 
 def _embed_text(text: str, api_key: str) -> list[float]:
@@ -243,8 +305,14 @@ def upsert_candidate_vectors(candidate_id: str, record: dict[str, Any]) -> list[
     metadata_base = {
         "candidate_id": candidate_id,
         "full_name": record.get("full_name", ""),
+        "full_name_ci": str(record.get("full_name", "") or "").strip().lower(),
         "job_role": record.get("job_role", ""),
+        "job_role_ci": str(record.get("job_role", "") or "").strip().lower(),
     }
+    for field in _VECTOR_FILTER_FIELDS:
+        raw = str(record.get(field, "") or "").strip()
+        metadata_base[field] = raw
+        metadata_base[f"{field}_ci"] = raw.lower()
 
     vectors: list[dict[str, Any]] = []
     embedded_sections: list[str] = []
@@ -281,6 +349,7 @@ def query_candidates(
     top_k: int = 25,
     *,
     keyword_weight: float | None = None,
+    metadata_filters: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, float]]:
     """Embed the JD, query Pinecone, rank by hybrid score (semantic + keyword overlap).
 
@@ -307,7 +376,15 @@ def query_candidates(
 
     query_vector = _embed_text(query_text, gemini_key)
     index = _get_pinecone_index(pinecone_key, index_name, index_host)
-    results = index.query(vector=query_vector, top_k=top_k, include_metadata=True)
+    pinecone_filter = _build_pinecone_metadata_filter(metadata_filters)
+    query_kwargs: dict[str, Any] = {
+        "vector": query_vector,
+        "top_k": top_k,
+        "include_metadata": True,
+    }
+    if pinecone_filter:
+        query_kwargs["filter"] = pinecone_filter
+    results = index.query(**query_kwargs)
 
     candidates: dict[str, dict[str, Any]] = {}
     for match in results.get("matches", []) or []:
