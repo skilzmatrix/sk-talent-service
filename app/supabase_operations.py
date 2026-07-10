@@ -20,6 +20,7 @@ CANDIDATE_GLOBAL_SEARCH_FIELDS = (
     "state",
     "domain_industry",
     "work_authorization",
+    "experience",
     "preferred_location",
     "expected_salary",
     "employment_type",
@@ -29,6 +30,7 @@ CANDIDATE_GLOBAL_SEARCH_FIELDS = (
 
 CANDIDATE_TEXT_FILTER_FIELDS = (
     "work_authorization",
+    "experience",
     "location",
     "city",
     "state",
@@ -58,6 +60,7 @@ def save_resume(record: dict[str, Any]) -> dict[str, Any]:
         .insert({
             "file_name": record["file_name"],
             "summary": record["summary"],
+            "experience": record.get("experience", ""),
             "skills": record.get("skills", []),
             "experiences": record.get("experiences", []),
             "projects": record.get("projects", []),
@@ -341,6 +344,7 @@ def save_candidate(record: dict[str, Any]) -> dict[str, Any]:
             "linkedin_profile": record.get("linkedin_profile", ""),
             "domain_industry": record.get("domain_industry", ""),
             "work_authorization": record.get("work_authorization", ""),
+            "experience": record.get("experience", ""),
             "preferred_location": record.get("preferred_location", ""),
             "open_to_relocation": record.get("open_to_relocation", ""),
             "expected_salary": record.get("expected_salary", ""),
@@ -375,6 +379,7 @@ def update_candidate(candidate_id: str, record: dict[str, Any]) -> dict[str, Any
             "linkedin_profile": record.get("linkedin_profile", ""),
             "domain_industry": record.get("domain_industry", ""),
             "work_authorization": record.get("work_authorization", ""),
+            "experience": record.get("experience", ""),
             "preferred_location": record.get("preferred_location", ""),
             "open_to_relocation": record.get("open_to_relocation", ""),
             "expected_salary": record.get("expected_salary", ""),

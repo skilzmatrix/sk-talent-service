@@ -156,7 +156,7 @@ backend/
 | `POST` | `/api/job-descriptions` | Save a generated job description |
 | `GET` | `/api/job-descriptions` | List all saved job descriptions |
 | `POST` | `/api/candidates` | Save a candidate profile |
-| `GET` | `/api/candidates` | List paginated candidates (`page`, `page_size`, `q`, `work_authorization`, `location`, `city`, `state`, `linkedin_profile`, `domain_industry`, `preferred_location`, `open_to_relocation`, `expected_salary`, `employment_type`, `skills`) |
+| `GET` | `/api/candidates` | List paginated candidates (`page`, `page_size`, `q`, `work_authorization`, `experience`, `location`, `city`, `state`, `linkedin_profile`, `domain_industry`, `preferred_location`, `open_to_relocation`, `expected_salary`, `employment_type`, `skills`) |
 
 Supabase endpoints return `503` if the Supabase environment variables are not configured.
 

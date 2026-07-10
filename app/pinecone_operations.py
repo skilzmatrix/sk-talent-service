@@ -53,6 +53,7 @@ _STOPWORDS = frozenset(
 _MAX_JD_TOKENS = 120
 _VECTOR_FILTER_FIELDS = (
     "work_authorization",
+    "experience",
     "location",
     "city",
     "state",
