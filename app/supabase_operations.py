@@ -330,6 +330,37 @@ def _normalize_location_fields(record: dict[str, Any]) -> tuple[str, str, str]:
 
 def save_candidate(record: dict[str, Any]) -> dict[str, Any]:
     client = _client()
+    
+    # Check for duplicates and remove them (keep only the latest)
+    email = record.get("email", "").strip()
+    phone = record.get("phone", "").strip()
+    
+    if email or phone:
+        if email:
+            email_lower = email.lower()
+            response = (
+                client.table("candidates")
+                .select("id, resume_url")
+                .ilike("email", email_lower)
+                .execute()
+            )
+            for dup in response.data or []:
+                dup_id = dup.get("id")
+                dup_resume = dup.get("resume_url")
+                delete_candidate(dup_id, dup_resume)
+        
+        if phone:
+            response = (
+                client.table("candidates")
+                .select("id, resume_url")
+                .eq("phone", phone)
+                .execute()
+            )
+            for dup in response.data or []:
+                dup_id = dup.get("id")
+                dup_resume = dup.get("resume_url")
+                delete_candidate(dup_id, dup_resume)
+    
     location, city, state = _normalize_location_fields(record)
     response = (
         client.table("candidates")
