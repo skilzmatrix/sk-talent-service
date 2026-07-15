@@ -28,6 +28,14 @@ SchemaCandidateProfile: dict[str, Any] = {
             "type": "STRING",
             "description": "Work authorisation status. One of: Initial OPT, STEM OPT, H1-B, Green Card, US Citizen. Empty string if not found.",
         },
+        "experience": {
+            "type": "STRING",
+            "description": (
+                "Total years of professional work experience as a number string "
+                '(e.g. "3", "7.5", "12"). Compute from employment date ranges; '
+                "do not double-count overlapping roles. Empty string if unknown."
+            ),
+        },
         "preferred_location": {
             "type": "STRING",
             "description": "Preferred work location (e.g. Remote, New York). Empty string if not found.",
@@ -205,6 +213,65 @@ SchemaCandidateComparison: dict[str, Any] = {
     "required": ["markdown_report", "skills_chart_data"]
 }
 
+SchemaExtractTalentFilters: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {
+        "work_authorization": {
+            "type": "STRING",
+            "description": (
+                "Hard work-auth constraint if required. One of: Initial OPT, STEM OPT, "
+                "H1-B, Green Card, US Citizen. Empty string if not a hard requirement."
+            ),
+        },
+        "experience_min": {
+            "type": "NUMBER",
+            "description": (
+                "Minimum years of professional experience required (e.g. 5 for '5+ years'). "
+                "Use 0 if no minimum is stated."
+            ),
+        },
+        "city": {
+            "type": "STRING",
+            "description": "Required city if clearly stated. Empty string otherwise.",
+        },
+        "state": {
+            "type": "STRING",
+            "description": "Required U.S. state as 2-letter code if clearly stated (e.g. TX). Empty otherwise.",
+        },
+        "location": {
+            "type": "STRING",
+            "description": "Required location phrase if city/state not separable. Empty otherwise.",
+        },
+        "employment_type": {
+            "type": "STRING",
+            "description": "One of: Full-time, Part-time, Contract, Freelance. Empty if not required.",
+        },
+        "open_to_relocation": {
+            "type": "STRING",
+            "description": "Yes or No only if relocation is a hard requirement. Empty otherwise.",
+        },
+        "domain_industry": {
+            "type": "STRING",
+            "description": "Required domain/industry if clearly mandated. Empty otherwise.",
+        },
+        "preferred_location": {
+            "type": "STRING",
+            "description": "Required preferred work location (e.g. Remote) if hard requirement. Empty otherwise.",
+        },
+    },
+    "required": [
+        "work_authorization",
+        "experience_min",
+        "city",
+        "state",
+        "location",
+        "employment_type",
+        "open_to_relocation",
+        "domain_industry",
+        "preferred_location",
+    ],
+}
+
 SchemaTalentSearchRerank: dict[str, Any] = {
     "type": "OBJECT",
     "properties": {
@@ -309,6 +376,7 @@ Extract ALL of the following:
 - Professional summary (2-4 sentences)
 - All technical and soft skills
 - All work experiences with title, company, duration, and key responsibilities for each role
+- Total professional experience years in the "experience" field (number string such as "7.5")
 - All personal or professional projects with name, description, technologies, and URL if available
 - All certifications, licenses, or credentials with name, issuer, and date if available
 
@@ -317,6 +385,9 @@ Extract city and state separately when location is available.
 For open_to_relocation, choose from: Yes, No, or "" if not mentioned.
 For employment_type, choose from: Full-time, Part-time, Contract, Freelance, or "" if not mentioned.
 For work_authorization, choose from: Initial OPT, STEM OPT, H1-B, Green Card, US Citizen, or "" if not mentioned.
+For "experience" (years): compute total professional years from work history dates/durations.
+  Avoid double-counting overlapping roles. Round to one decimal when needed (e.g. "3.5").
+  Use "" if experience cannot be determined.
 For experiences, projects, or certifications not found, use an empty array [].
 
 Resume:
@@ -414,6 +485,24 @@ IMPORTANT READING RULES:
       2.  **Optimized Job Ad:**
           - Provide the full, rewritten job advertisement incorporating all your recommendations."""
         return "text", _generate_text(client, prompt)
+
+    if operation == "extractTalentFilters":
+        query_text = (payload.get("query") or payload.get("jobDescription") or "").strip()
+        prompt = f"""You extract HARD boolean/metadata filters from a recruiter search query or job description.
+
+Only extract constraints that are clearly required (must-have). Do NOT invent filters.
+Do NOT put skills, technologies, or soft preferences into these fields — those stay in semantic search.
+
+Allowed work_authorization values (or ""): Initial OPT, STEM OPT, H1-B, Green Card, US Citizen.
+For experience_min: parse phrases like "5+ years", "at least 3 years", "minimum 7 years experience". Use 0 if none.
+For state: use 2-letter US codes when possible (Texas→TX, California→CA).
+Leave a field as "" (or experience_min=0) when not a hard requirement.
+
+Query / JD:
+---
+{query_text}
+---"""
+        return "json", _generate_json(client, prompt, SchemaExtractTalentFilters)
 
     if operation == "rerankTalentSearch":
         job_description = (payload.get("jobDescription") or "").strip()

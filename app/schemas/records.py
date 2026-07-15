@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 class ResumeRecord(BaseModel):
     file_name: str
     summary: str
+    experience: str = ""
     skills: list[Any] = Field(default_factory=list)
     experiences: list[Any] = Field(default_factory=list)
     projects: list[Any] = Field(default_factory=list)
@@ -34,6 +35,7 @@ class CandidateRecord(BaseModel):
     linkedin_profile: str = ""
     domain_industry: str = ""
     work_authorization: str = ""
+    experience: str = ""
     preferred_location: str = ""
     open_to_relocation: str = ""
     expected_salary: str = ""
@@ -57,6 +59,7 @@ class CandidateProfileUpdate(BaseModel):
     linkedin_profile: str = ""
     domain_industry: str = ""
     work_authorization: str = ""
+    experience: str = ""
     preferred_location: str = ""
     open_to_relocation: str = ""
     expected_salary: str = ""

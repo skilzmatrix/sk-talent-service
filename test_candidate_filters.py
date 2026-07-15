@@ -10,6 +10,7 @@ class CandidateFiltersRouteTests(unittest.IsolatedAsyncioTestCase):
     def test_build_candidate_filters_normalizes_values(self) -> None:
         filters = records._build_candidate_filters(
             work_authorization="  USC  ",
+            experience=" 5 years ",
             location="   ",
             city=" Austin ",
             state=" TX ",
@@ -21,6 +22,7 @@ class CandidateFiltersRouteTests(unittest.IsolatedAsyncioTestCase):
             filters,
             {
                 "work_authorization": "USC",
+                "experience": "5 years",
                 "city": "Austin",
                 "state": "TX",
                 "preferred_location": "New York",
@@ -50,6 +52,7 @@ class CandidateFiltersRouteTests(unittest.IsolatedAsyncioTestCase):
                 page_size=10,
                 q="backend",
                 work_authorization="H1B",
+                experience="5 years",
                 location="Austin",
                 city="Austin",
                 state="TX",
@@ -71,6 +74,7 @@ class CandidateFiltersRouteTests(unittest.IsolatedAsyncioTestCase):
                 "backend",
                 {
                     "work_authorization": "H1B",
+                    "experience": "5 years",
                     "location": "Austin",
                     "city": "Austin",
                     "state": "TX",
@@ -186,6 +190,7 @@ class TalentSearchFilterTests(unittest.IsolatedAsyncioTestCase):
                     use_llm_rerank=False,
                     location="Austin",
                     work_authorization="H1B",
+                    experience="5 years",
                     city="Austin",
                     state="TX",
                     skills=["Python", "FastAPI"],
@@ -199,6 +204,7 @@ class TalentSearchFilterTests(unittest.IsolatedAsyncioTestCase):
             captured["metadata_filters"],
             {
                 "work_authorization": "H1B",
+                "experience": "5 years",
                 "location": "Austin",
                 "city": "Austin",
                 "state": "TX",
@@ -211,6 +217,7 @@ class TalentSearchFilterTests(unittest.IsolatedAsyncioTestCase):
             {
                 "location": "  Austin, TX  ",
                 "work_authorization": "H1-B",
+                "experience": "5 years",
                 "full_name": "  Jane Doe  ",
                 "job_role": "Backend Engineer",
                 "skills": "Python",
@@ -223,6 +230,7 @@ class TalentSearchFilterTests(unittest.IsolatedAsyncioTestCase):
                 "$and": [
                     {"location_ci": {"$eq": "austin, tx"}},
                     {"work_authorization_ci": {"$eq": "h1-b"}},
+                    {"experience_ci": {"$eq": "5 years"}},
                     {
                         "$or": [
                             {"full_name_ci": {"$eq": "jane doe"}},

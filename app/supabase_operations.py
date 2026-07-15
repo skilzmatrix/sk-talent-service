@@ -20,6 +20,7 @@ CANDIDATE_GLOBAL_SEARCH_FIELDS = (
     "state",
     "domain_industry",
     "work_authorization",
+    "experience",
     "preferred_location",
     "expected_salary",
     "employment_type",
@@ -58,6 +59,7 @@ def save_resume(record: dict[str, Any]) -> dict[str, Any]:
         .insert({
             "file_name": record["file_name"],
             "summary": record["summary"],
+            "experience": record.get("experience", ""),
             "skills": record.get("skills", []),
             "experiences": record.get("experiences", []),
             "projects": record.get("projects", []),
@@ -327,6 +329,37 @@ def _normalize_location_fields(record: dict[str, Any]) -> tuple[str, str, str]:
 
 def save_candidate(record: dict[str, Any]) -> dict[str, Any]:
     client = _client()
+    
+    # Check for duplicates and remove them (keep only the latest)
+    email = record.get("email", "").strip()
+    phone = record.get("phone", "").strip()
+    
+    if email or phone:
+        if email:
+            email_lower = email.lower()
+            response = (
+                client.table("candidates")
+                .select("id, resume_url")
+                .ilike("email", email_lower)
+                .execute()
+            )
+            for dup in response.data or []:
+                dup_id = dup.get("id")
+                dup_resume = dup.get("resume_url")
+                delete_candidate(dup_id, dup_resume)
+        
+        if phone:
+            response = (
+                client.table("candidates")
+                .select("id, resume_url")
+                .eq("phone", phone)
+                .execute()
+            )
+            for dup in response.data or []:
+                dup_id = dup.get("id")
+                dup_resume = dup.get("resume_url")
+                delete_candidate(dup_id, dup_resume)
+    
     location, city, state = _normalize_location_fields(record)
     response = (
         client.table("candidates")
@@ -341,6 +374,7 @@ def save_candidate(record: dict[str, Any]) -> dict[str, Any]:
             "linkedin_profile": record.get("linkedin_profile", ""),
             "domain_industry": record.get("domain_industry", ""),
             "work_authorization": record.get("work_authorization", ""),
+            "experience": record.get("experience", ""),
             "preferred_location": record.get("preferred_location", ""),
             "open_to_relocation": record.get("open_to_relocation", ""),
             "expected_salary": record.get("expected_salary", ""),
@@ -375,6 +409,7 @@ def update_candidate(candidate_id: str, record: dict[str, Any]) -> dict[str, Any
             "linkedin_profile": record.get("linkedin_profile", ""),
             "domain_industry": record.get("domain_industry", ""),
             "work_authorization": record.get("work_authorization", ""),
+            "experience": record.get("experience", ""),
             "preferred_location": record.get("preferred_location", ""),
             "open_to_relocation": record.get("open_to_relocation", ""),
             "expected_salary": record.get("expected_salary", ""),
@@ -444,6 +479,46 @@ def _candidate_matches_skills(candidate: dict[str, Any], skills: list[str]) -> b
     return False
 
 
+def _parse_experience_years(value: Any) -> float | None:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return None
+    cleaned = (
+        raw.replace("years", "")
+        .replace("year", "")
+        .replace("yrs", "")
+        .replace("yr", "")
+        .replace("+", "")
+        .replace(",", "")
+        .strip()
+    )
+    try:
+        years = float(cleaned)
+    except ValueError:
+        return None
+    if years < 0 or years > 80:
+        return None
+    return years
+
+
+def _normalize_experience_min_filter(filters: dict[str, Any] | None) -> float | None:
+    if not filters:
+        return None
+    raw_value = filters.get("experience")
+    if not isinstance(raw_value, str):
+        return None
+    return _parse_experience_years(raw_value)
+
+
+def _candidate_matches_experience_min(candidate: dict[str, Any], min_years: float | None) -> bool:
+    if min_years is None:
+        return True
+    years = _parse_experience_years(candidate.get("experience"))
+    if years is None:
+        return False
+    return years >= min_years
+
+
 def _apply_candidate_filters(db_query: Any, filters: dict[str, Any] | None) -> Any:
     if not filters:
         return db_query
@@ -471,6 +546,7 @@ def get_candidates_paginated(
     start = (page - 1) * page_size
     end = start + page_size - 1
     skill_filters = _normalize_skill_filters(filters)
+    experience_min = _normalize_experience_min_filter(filters)
     db_query = client.table("candidates").select("*", count="exact")
     term = (query or "").strip()
     if term:
@@ -485,10 +561,14 @@ def get_candidates_paginated(
 
     db_query = _apply_candidate_filters(db_query, filters)
 
-    if skill_filters:
+    needs_python_filter = bool(skill_filters) or experience_min is not None
+    if needs_python_filter:
         response = db_query.order("created_at", desc=True).execute()
         filtered_items = [
-            item for item in (response.data or []) if _candidate_matches_skills(item, skill_filters)
+            item
+            for item in (response.data or [])
+            if _candidate_matches_skills(item, skill_filters)
+            and _candidate_matches_experience_min(item, experience_min)
         ]
         total_items = len(filtered_items)
         total_pages = (total_items + page_size - 1) // page_size if total_items else 0

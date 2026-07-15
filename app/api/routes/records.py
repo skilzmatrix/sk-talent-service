@@ -33,6 +33,7 @@ class TalentSearchRequest(BaseModel):
     # When True, Gemini reranks the vector top‑K using full DB profiles and adds reasoning.
     use_llm_rerank: bool = Field(default=True)
     work_authorization: str | None = None
+    experience: str | None = None
     location: str | None = None
     city: str | None = None
     state: str | None = None
@@ -70,6 +71,7 @@ def _normalize_candidate_skills(skills: list[str] | None) -> list[str]:
 
 def _build_candidate_filters(
     work_authorization: str | None = None,
+    experience: str | None = None,
     location: str | None = None,
     city: str | None = None,
     state: str | None = None,
@@ -83,6 +85,7 @@ def _build_candidate_filters(
 ) -> dict[str, Any]:
     filters = {
         "work_authorization": _normalize_candidate_filter(work_authorization),
+        "experience": _normalize_candidate_filter(experience),
         "location": _normalize_candidate_filter(location),
         "city": _normalize_candidate_filter(city),
         "state": _normalize_candidate_filter(state),
@@ -240,6 +243,7 @@ async def get_candidates(
     page_size: int = Query(default=20, ge=1, le=100),
     q: str | None = Query(default=None),
     work_authorization: str | None = Query(default=None),
+    experience: str | None = Query(default=None),
     location: str | None = Query(default=None),
     city: str | None = Query(default=None),
     state: str | None = Query(default=None),
@@ -253,6 +257,7 @@ async def get_candidates(
 ) -> PaginatedRecordsResponse:
     filters = _build_candidate_filters(
         work_authorization=work_authorization,
+        experience=experience,
         location=location,
         city=city,
         state=state,
@@ -292,6 +297,7 @@ async def talent_search(body: TalentSearchRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="Query text is required.")
     candidate_filters = _build_candidate_filters(
         work_authorization=body.work_authorization,
+        experience=body.experience,
         location=body.location,
         city=body.city,
         state=body.state,
@@ -328,7 +334,11 @@ async def talent_search(body: TalentSearchRequest) -> dict[str, Any]:
             "results": results,
             "ranking_weights": ranking_weights,
             "llm_rerank": meta.get("llm_rerank"),
+            "applied_filters": meta.get("applied_filters") or {},
+            "filters_relaxed": bool(meta.get("filters_relaxed")),
         }
+        if meta.get("filters_relaxed_reason"):
+            out["filters_relaxed_reason"] = meta["filters_relaxed_reason"]
         if meta.get("llm_error"):
             out["llm_error"] = meta["llm_error"]
         if meta.get("llm_hint"):
