@@ -334,7 +334,11 @@ async def talent_search(body: TalentSearchRequest) -> dict[str, Any]:
             "results": results,
             "ranking_weights": ranking_weights,
             "llm_rerank": meta.get("llm_rerank"),
+            "applied_filters": meta.get("applied_filters") or {},
+            "filters_relaxed": bool(meta.get("filters_relaxed")),
         }
+        if meta.get("filters_relaxed_reason"):
+            out["filters_relaxed_reason"] = meta["filters_relaxed_reason"]
         if meta.get("llm_error"):
             out["llm_error"] = meta["llm_error"]
         if meta.get("llm_hint"):

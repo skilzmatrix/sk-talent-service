@@ -149,6 +149,28 @@ def _normalize_filter_value(value: Any) -> str | None:
     return normalized or None
 
 
+def _parse_experience_years(value: Any) -> float | None:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return None
+    cleaned = (
+        raw.replace("years", "")
+        .replace("year", "")
+        .replace("yrs", "")
+        .replace("yr", "")
+        .replace("+", "")
+        .replace(",", "")
+        .strip()
+    )
+    try:
+        years = float(cleaned)
+    except ValueError:
+        return None
+    if years < 0 or years > 80:
+        return None
+    return years
+
+
 def _build_pinecone_metadata_filter(
     metadata_filters: dict[str, Any] | None,
 ) -> dict[str, Any] | None:
@@ -158,10 +180,22 @@ def _build_pinecone_metadata_filter(
 
     clauses: list[dict[str, Any]] = []
     for field, raw_value in metadata_filters.items():
+        if field in {"skills", "experience"}:
+            # skills stay semantic; experience string uses experience_min / experience_years
+            continue
+
         if field == "candidate_id":
             cid = str(raw_value).strip()
             if cid:
                 clauses.append({"candidate_id": {"$eq": cid}})
+            continue
+
+        if field == "experience_min":
+            min_years = _parse_experience_years(raw_value)
+            if min_years is None and isinstance(raw_value, (int, float)):
+                min_years = float(raw_value)
+            if min_years is not None and min_years > 0:
+                clauses.append({"experience_years": {"$gte": min_years}})
             continue
 
         if field in {"full_name", "job_role"}:
@@ -314,6 +348,10 @@ def upsert_candidate_vectors(candidate_id: str, record: dict[str, Any]) -> list[
         raw = str(record.get(field, "") or "").strip()
         metadata_base[field] = raw
         metadata_base[f"{field}_ci"] = raw.lower()
+
+    experience_years = _parse_experience_years(record.get("experience"))
+    if experience_years is not None:
+        metadata_base["experience_years"] = experience_years
 
     vectors: list[dict[str, Any]] = []
     embedded_sections: list[str] = []

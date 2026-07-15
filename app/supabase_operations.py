@@ -30,7 +30,6 @@ CANDIDATE_GLOBAL_SEARCH_FIELDS = (
 
 CANDIDATE_TEXT_FILTER_FIELDS = (
     "work_authorization",
-    "experience",
     "location",
     "city",
     "state",
@@ -480,6 +479,46 @@ def _candidate_matches_skills(candidate: dict[str, Any], skills: list[str]) -> b
     return False
 
 
+def _parse_experience_years(value: Any) -> float | None:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return None
+    cleaned = (
+        raw.replace("years", "")
+        .replace("year", "")
+        .replace("yrs", "")
+        .replace("yr", "")
+        .replace("+", "")
+        .replace(",", "")
+        .strip()
+    )
+    try:
+        years = float(cleaned)
+    except ValueError:
+        return None
+    if years < 0 or years > 80:
+        return None
+    return years
+
+
+def _normalize_experience_min_filter(filters: dict[str, Any] | None) -> float | None:
+    if not filters:
+        return None
+    raw_value = filters.get("experience")
+    if not isinstance(raw_value, str):
+        return None
+    return _parse_experience_years(raw_value)
+
+
+def _candidate_matches_experience_min(candidate: dict[str, Any], min_years: float | None) -> bool:
+    if min_years is None:
+        return True
+    years = _parse_experience_years(candidate.get("experience"))
+    if years is None:
+        return False
+    return years >= min_years
+
+
 def _apply_candidate_filters(db_query: Any, filters: dict[str, Any] | None) -> Any:
     if not filters:
         return db_query
@@ -507,6 +546,7 @@ def get_candidates_paginated(
     start = (page - 1) * page_size
     end = start + page_size - 1
     skill_filters = _normalize_skill_filters(filters)
+    experience_min = _normalize_experience_min_filter(filters)
     db_query = client.table("candidates").select("*", count="exact")
     term = (query or "").strip()
     if term:
@@ -521,10 +561,14 @@ def get_candidates_paginated(
 
     db_query = _apply_candidate_filters(db_query, filters)
 
-    if skill_filters:
+    needs_python_filter = bool(skill_filters) or experience_min is not None
+    if needs_python_filter:
         response = db_query.order("created_at", desc=True).execute()
         filtered_items = [
-            item for item in (response.data or []) if _candidate_matches_skills(item, skill_filters)
+            item
+            for item in (response.data or [])
+            if _candidate_matches_skills(item, skill_filters)
+            and _candidate_matches_experience_min(item, experience_min)
         ]
         total_items = len(filtered_items)
         total_pages = (total_items + page_size - 1) // page_size if total_items else 0
