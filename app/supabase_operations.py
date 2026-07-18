@@ -395,27 +395,36 @@ def save_candidate(record: dict[str, Any]) -> dict[str, Any]:
 
 def update_candidate(candidate_id: str, record: dict[str, Any]) -> dict[str, Any]:
     client = _client()
-    location, city, state = _normalize_location_fields(record)
+    current = get_candidate_by_id(candidate_id)
+    if not current:
+        raise RuntimeError(f"Candidate {candidate_id} not found.")
+
+    merged_record = {**current, **record}
+    location, city, state = _normalize_location_fields(merged_record)
     response = (
         client.table("candidates")
         .update({
-            "full_name": record.get("full_name", ""),
-            "job_role": record.get("job_role", ""),
-            "email": record.get("email", ""),
-            "phone": record.get("phone", ""),
+            "full_name": merged_record.get("full_name", ""),
+            "job_role": merged_record.get("job_role", ""),
+            "email": merged_record.get("email", ""),
+            "phone": merged_record.get("phone", ""),
             "location": location,
             "city": city,
             "state": state,
-            "linkedin_profile": record.get("linkedin_profile", ""),
-            "domain_industry": record.get("domain_industry", ""),
-            "work_authorization": record.get("work_authorization", ""),
-            "experience": record.get("experience", ""),
-            "preferred_location": record.get("preferred_location", ""),
-            "open_to_relocation": record.get("open_to_relocation", ""),
-            "expected_salary": record.get("expected_salary", ""),
-            "employment_type": record.get("employment_type", ""),
-            "summary": record.get("summary", ""),
-            "skills": record.get("skills", []),
+            "linkedin_profile": merged_record.get("linkedin_profile", ""),
+            "domain_industry": merged_record.get("domain_industry", ""),
+            "work_authorization": merged_record.get("work_authorization", ""),
+            "experience": merged_record.get("experience", ""),
+            "preferred_location": merged_record.get("preferred_location", ""),
+            "open_to_relocation": merged_record.get("open_to_relocation", ""),
+            "expected_salary": merged_record.get("expected_salary", ""),
+            "employment_type": merged_record.get("employment_type", ""),
+            "summary": merged_record.get("summary", ""),
+            "skills": merged_record.get("skills", []),
+            "experiences": merged_record.get("experiences", []),
+            "projects": merged_record.get("projects", []),
+            "certifications": merged_record.get("certifications", []),
+            "resume_url": merged_record.get("resume_url", ""),
         })
         .eq("id", candidate_id)
         .execute()

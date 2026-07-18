@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Literal
 
 from google import genai
@@ -31,9 +32,9 @@ SchemaCandidateProfile: dict[str, Any] = {
         "experience": {
             "type": "STRING",
             "description": (
-                "Total years of professional work experience as a number string "
-                '(e.g. "3", "7.5", "12"). Compute from employment date ranges; '
-                "do not double-count overlapping roles. Empty string if unknown."
+                "Professional experience captured from the resume as a string "
+                '(e.g. "3", "7.5", "12" for years of experience, or "Senior backend engineer" '
+                "if the resume only supports a general experience summary). Empty string if unknown."
             ),
         },
         "preferred_location": {
@@ -106,7 +107,7 @@ SchemaCandidateProfile: dict[str, Any] = {
             "description": "Certifications, licenses, or credentials.",
         },
     },
-    "required": ["full_name", "job_role", "summary", "skills", "experiences"],
+    "required": ["full_name", "job_role", "experience", "summary", "skills", "experiences"],
 }
 
 SchemaResumeAnalysis: dict[str, Any] = {
@@ -328,6 +329,42 @@ def _generate_text(client: genai.Client, prompt: str) -> str:
     return (response.text or "").strip()
 
 
+def _extract_json_text(raw: str) -> str:
+    text = raw.strip()
+    if not text:
+        raise ValueError("Gemini returned an empty JSON response.")
+
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s*```$", "", text)
+
+    try:
+        json.loads(text)
+        return text
+    except json.JSONDecodeError:
+        pass
+
+    first_object = text.find("{")
+    last_object = text.rfind("}")
+    first_array = text.find("[")
+    last_array = text.rfind("]")
+
+    candidates: list[str] = []
+    if first_object != -1 and last_object > first_object:
+        candidates.append(text[first_object : last_object + 1].strip())
+    if first_array != -1 and last_array > first_array:
+        candidates.append(text[first_array : last_array + 1].strip())
+
+    for candidate in candidates:
+        try:
+            json.loads(candidate)
+            return candidate
+        except json.JSONDecodeError:
+            continue
+
+    raise ValueError("Failed to parse Gemini JSON response.")
+
+
 def _generate_json(
     client: genai.Client, prompt: str, schema: dict[str, Any]
 ) -> Any:
@@ -340,7 +377,7 @@ def _generate_json(
         ),
     )
     raw = (response.text or "").strip()
-    return json.loads(raw)
+    return json.loads(_extract_json_text(raw))
 
 
 def invoke(
@@ -376,7 +413,7 @@ Extract ALL of the following:
 - Professional summary (2-4 sentences)
 - All technical and soft skills
 - All work experiences with title, company, duration, and key responsibilities for each role
-- Total professional experience years in the "experience" field (number string such as "7.5")
+- Professional experience in the "experience" field as a concise string; this field is required
 - All personal or professional projects with name, description, technologies, and URL if available
 - All certifications, licenses, or credentials with name, issuer, and date if available
 
@@ -385,9 +422,9 @@ Extract city and state separately when location is available.
 For open_to_relocation, choose from: Yes, No, or "" if not mentioned.
 For employment_type, choose from: Full-time, Part-time, Contract, Freelance, or "" if not mentioned.
 For work_authorization, choose from: Initial OPT, STEM OPT, H1-B, Green Card, US Citizen, or "" if not mentioned.
-For "experience" (years): compute total professional years from work history dates/durations.
-  Avoid double-counting overlapping roles. Round to one decimal when needed (e.g. "3.5").
-  Use "" if experience cannot be determined.
+For "experience": return a concise professional experience string derived from the resume.
+    Prefer a numeric years value when the dates support it, but otherwise summarize the candidate's
+    experience level in plain language. Use "" if experience cannot be determined.
 For experiences, projects, or certifications not found, use an empty array [].
 
 Resume:

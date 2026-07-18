@@ -4,6 +4,7 @@ from unittest.mock import patch
 from app.api.routes import records
 from app import pinecone_operations
 from app import supabase_operations
+from app.schemas.records import CandidateProfileUpdate
 
 
 class CandidateFiltersRouteTests(unittest.IsolatedAsyncioTestCase):
@@ -248,6 +249,76 @@ class TalentSearchFilterTests(unittest.IsolatedAsyncioTestCase):
                 ]
             },
         )
+
+
+class CandidateUpdateTests(unittest.TestCase):
+    def test_candidate_profile_update_accepts_csv_skills(self) -> None:
+        update = CandidateProfileUpdate.model_validate(
+            {
+                "skills": "Python, FastAPI, SQL",
+            }
+        )
+
+        self.assertEqual(update.skills, ["Python", "FastAPI", "SQL"])
+
+    def test_update_candidate_merges_with_existing_record(self) -> None:
+        existing = {
+            "id": "candidate-123",
+            "full_name": "JAINAM SHAH",
+            "job_role": "Backend Engineer",
+            "email": "jainam@example.com",
+            "phone": "555-0100",
+            "location": "Austin, TX",
+            "city": "Austin",
+            "state": "TX",
+            "linkedin_profile": "https://linkedin.com/in/jainam",
+            "domain_industry": "Fintech",
+            "work_authorization": "USC",
+            "experience": "5 years",
+            "preferred_location": "Remote",
+            "open_to_relocation": "Yes",
+            "expected_salary": "150000",
+            "employment_type": "Full-time",
+            "summary": "Experienced backend engineer.",
+            "skills": ["Python", "FastAPI"],
+            "experiences": [{"title": "Engineer"}],
+            "projects": [{"name": "Payments"}],
+            "certifications": [{"name": "AWS"}],
+            "resume_url": "resumes/jainam.pdf",
+        }
+
+        payload = {"summary": "Updated summary", "skills": ["Python", "PostgreSQL"]}
+
+        fake_update_result = {
+            **existing,
+            "summary": "Updated summary",
+            "skills": ["Python", "PostgreSQL"],
+        }
+
+        update_query = unittest.mock.MagicMock()
+        update_query.eq.return_value = update_query
+        update_query.execute.return_value = unittest.mock.MagicMock(data=[fake_update_result])
+
+        table = unittest.mock.MagicMock()
+        table.update.return_value = update_query
+
+        client = unittest.mock.MagicMock()
+        client.table.return_value = table
+
+        with patch("app.supabase_operations._client", return_value=client), patch(
+            "app.supabase_operations.get_candidate_by_id", return_value=existing
+        ):
+            result = supabase_operations.update_candidate("candidate-123", payload)
+
+        table.update.assert_called_once()
+        updated_payload = table.update.call_args.args[0]
+        self.assertEqual(updated_payload["full_name"], "JAINAM SHAH")
+        self.assertEqual(updated_payload["experiences"], [{"title": "Engineer"}])
+        self.assertEqual(updated_payload["projects"], [{"name": "Payments"}])
+        self.assertEqual(updated_payload["certifications"], [{"name": "AWS"}])
+        self.assertEqual(updated_payload["resume_url"], "resumes/jainam.pdf")
+        self.assertEqual(result["summary"], "Updated summary")
+        self.assertEqual(result["skills"], ["Python", "PostgreSQL"])
 
 
 if __name__ == "__main__":

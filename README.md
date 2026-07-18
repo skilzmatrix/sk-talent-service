@@ -144,7 +144,7 @@ backend/
 | `generateJobDescription` | text | Generate a job description from title and responsibilities |
 | `optimizeJobAd` | text | Analyze and optimize a job ad for clarity, DEI, and engagement |
 | `analyzeResume` | json | Parse a resume and extract structured data; optionally score against a JD |
-| `createCandidateProfile` | json | Extract candidate profile fields from resume text |
+| `createCandidateProfile` | json | Extract candidate profile fields from resume text, including the candidate's experience in the `experience` field |
 | `compareCandidates` | text | Compare two candidates side-by-side against a job description |
 
 ### Supabase Persistence

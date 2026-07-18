@@ -228,7 +228,7 @@ async def save_candidate(body: CandidateRecord) -> dict[str, Any]:
 @router.put("/api/candidates/{candidate_id}")
 async def update_candidate(candidate_id: str, body: CandidateProfileUpdate) -> dict[str, Any]:
     result = await _run_storage_call(
-        persistence_service.update_candidate, candidate_id, body.model_dump()
+        persistence_service.update_candidate, candidate_id, body.model_dump(exclude_none=True)
     )
     embedded_sections = await asyncio.to_thread(
         pinecone_service.vectorize_candidate, candidate_id, result
