@@ -2,7 +2,12 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from app.gemini_operations import SchemaCandidateProfile, _extract_json_text, _generate_json
+from app.gemini_operations import (
+    SchemaCandidateProfile,
+    _extract_json_text,
+    _generate_json,
+    _resolve_num_questions,
+)
 
 
 class GeminiOperationsParseTests(unittest.TestCase):
@@ -29,6 +34,31 @@ class GeminiOperationsParseTests(unittest.TestCase):
 
     def test_candidate_profile_schema_requires_experience(self) -> None:
         self.assertIn("experience", SchemaCandidateProfile["required"])
+
+    def test_resolve_num_questions_prefers_explicit_field(self) -> None:
+        payload = {"numQuestions": "6"}
+
+        self.assertEqual(_resolve_num_questions(payload), 6)
+
+    def test_resolve_num_questions_supports_alternate_field_name(self) -> None:
+        payload = {"questionCount": 7}
+
+        self.assertEqual(_resolve_num_questions(payload), 7)
+
+    def test_resolve_num_questions_parses_from_prompt_text(self) -> None:
+        payload = {"prompt": "Please generate 5 interview questions for this candidate."}
+
+        self.assertEqual(_resolve_num_questions(payload), 5)
+
+    def test_resolve_num_questions_parses_number_words(self) -> None:
+        payload = {"message": "Generate eight questions based on this resume"}
+
+        self.assertEqual(_resolve_num_questions(payload), 8)
+
+    def test_resolve_num_questions_defaults_to_ten(self) -> None:
+        payload = {"jobDescription": "Need 7+ years of Python experience"}
+
+        self.assertEqual(_resolve_num_questions(payload), 10)
 
 
 if __name__ == "__main__":

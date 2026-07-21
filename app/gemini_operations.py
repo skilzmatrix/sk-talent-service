@@ -273,6 +273,61 @@ SchemaExtractTalentFilters: dict[str, Any] = {
     ],
 }
 
+SchemaInterviewQuestions: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {
+        "technical_questions": {
+            "type": "ARRAY",
+            "description": "Questions targeting technical skills and knowledge required by the job description.",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "question": {"type": "STRING"},
+                    "rationale": {"type": "STRING", "description": "Why this question is relevant for this candidate and role."},
+                    "difficulty": {"type": "STRING", "description": "Easy, Medium, or Hard."},
+                },
+                "required": ["question", "rationale", "difficulty"],
+            },
+        },
+        "behavioral_questions": {
+            "type": "ARRAY",
+            "description": "STAR-format behavioral questions drawn from the candidate's past experience.",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "question": {"type": "STRING"},
+                    "rationale": {"type": "STRING", "description": "Which past experience or role this question probes."},
+                },
+                "required": ["question", "rationale"],
+            },
+        },
+        "gap_questions": {
+            "type": "ARRAY",
+            "description": "Questions probing skills or experience required by the JD that the candidate appears to lack.",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "question": {"type": "STRING"},
+                    "gap": {"type": "STRING", "description": "The specific skill or experience gap being probed."},
+                },
+                "required": ["question", "gap"],
+            },
+        },
+        "culture_fit_questions": {
+            "type": "ARRAY",
+            "description": "Questions assessing culture fit, motivations, and role alignment.",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "question": {"type": "STRING"},
+                },
+                "required": ["question"],
+            },
+        },
+    },
+    "required": ["technical_questions", "behavioral_questions", "gap_questions", "culture_fit_questions"],
+}
+
 SchemaTalentSearchRerank: dict[str, Any] = {
     "type": "OBJECT",
     "properties": {
@@ -378,6 +433,105 @@ def _generate_json(
     )
     raw = (response.text or "").strip()
     return json.loads(_extract_json_text(raw))
+
+
+def _coerce_positive_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, float):
+        if value.is_integer() and value > 0:
+            return int(value)
+        return None
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    match = re.search(r"\d+", text)
+    if match:
+        parsed = int(match.group(0))
+        return parsed if parsed > 0 else None
+
+    word_to_num = {
+        "one": 1,
+        "two": 2,
+        "three": 3,
+        "four": 4,
+        "five": 5,
+        "six": 6,
+        "seven": 7,
+        "eight": 8,
+        "nine": 9,
+        "ten": 10,
+        "eleven": 11,
+        "twelve": 12,
+        "thirteen": 13,
+        "fourteen": 14,
+        "fifteen": 15,
+        "sixteen": 16,
+        "seventeen": 17,
+        "eighteen": 18,
+        "nineteen": 19,
+        "twenty": 20,
+    }
+    normalized = text.lower()
+    for word, number in word_to_num.items():
+        if re.search(rf"\b{word}\b", normalized):
+            return number
+    return None
+
+
+def _resolve_num_questions(payload: dict[str, Any]) -> int:
+    default_count = 10
+    max_count = 40
+
+    direct_keys = [
+        "numQuestions",
+        "num_questions",
+        "questionCount",
+        "questionsCount",
+        "numberOfQuestions",
+        "totalQuestions",
+        "total_questions",
+        "count",
+    ]
+    for key in direct_keys:
+        parsed = _coerce_positive_int(payload.get(key))
+        if parsed is not None:
+            return min(parsed, max_count)
+
+    text_keys = ["prompt", "userPrompt", "instruction", "instructions", "message", "query"]
+    patterns = [
+        r"(?:generate|create|write|ask)\s+(\d+)\s+(?:interview\s+)?questions?",
+        r"(\d+)\s+(?:interview\s+)?questions?",
+        r"questions?\s*[:=]\s*(\d+)",
+    ]
+    for key in text_keys:
+        text_value = payload.get(key)
+        if text_value is None:
+            continue
+        text = str(text_value).strip()
+        if not text:
+            continue
+        lowered = text.lower()
+        for pattern in patterns:
+            match = re.search(pattern, lowered)
+            if not match:
+                continue
+            parsed = _coerce_positive_int(match.group(1))
+            if parsed is not None:
+                return min(parsed, max_count)
+        # Fallback for phrasing like "generate five questions".
+        if "question" in lowered:
+            parsed = _coerce_positive_int(lowered)
+            if parsed is not None:
+                return min(parsed, max_count)
+
+    return default_count
 
 
 def invoke(
@@ -568,5 +722,34 @@ You are given the job description and a JSON array of candidates. Each item has 
 
 Return only valid JSON matching the schema."""
         return "json", _generate_json(client, prompt, SchemaTalentSearchRerank)
+
+    if operation == "generateInterviewQuestions":
+        resume_text = payload.get("resumeText", "")
+        job_description = (payload.get("jobDescription") or "").strip()
+        num_questions = _resolve_num_questions(payload)
+        prompt = f"""You are an expert technical interviewer preparing a customised interview guide.
+
+Your goal is to generate {num_questions} targeted interview questions split across four categories:
+1. **Technical** – probe skills and technologies explicitly required by the job description.
+2. **Behavioral** – draw on specific roles, projects, or responsibilities in the candidate's resume (use STAR framing).
+3. **Gap-probe** – address skills or experience the JD requires that the candidate does not appear to have.
+4. **Culture-fit** – assess motivations, working style, and alignment with the role.
+
+Distribute questions roughly evenly across the four categories (adjust if resume or JD is thin in an area).
+For each question include a concise rationale grounded in the specific JD requirement or resume detail.
+For technical questions also assign a difficulty: Easy, Medium, or Hard.
+
+Job Description:
+---
+{job_description}
+---
+
+Candidate Resume:
+---
+{resume_text}
+---
+
+Return only valid JSON matching the schema."""
+        return "json", _generate_json(client, prompt, SchemaInterviewQuestions)
 
     raise ValueError(f"Unknown operation: {operation}")
